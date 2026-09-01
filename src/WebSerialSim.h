@@ -16,7 +16,7 @@
 	#define BUFFER_PSRAM
 	
 	#if HISTORY_FS
-				
+		
 		#define FILE_HISTORY "/history.txt"
 		
 		#define HISTORY_SD
@@ -68,12 +68,13 @@
 	
 	#define LEN_BUF_SER 60
 	#define PRINTF_LENMAX 256
-		
+	
 	// Eredita direttamente da Print
 	class WebSerialSim : public Print {
 		
 		public:
 		WebSerialSim();
+		~WebSerialSim();
 		
 		// =========================================================================
 		// METODI VIRTUALI DI PRINT (Sostituiscono i vecchi template / String)
@@ -87,7 +88,7 @@
 		// Rende visibili anche gli altri sovraccarichi di write della classe base
 		using Print::write;
 		// =========================================================================
-
+		
 		void printfWeb(const char* format, ...);
 		void printWeb(char* _datiprint);
 		void sendWeb(char* _dati, size_t len);
@@ -107,6 +108,10 @@
 		void unrollBuffer();
 		void parsinghistory(char *opzion);
 		void printBigBuf(char *bigbuf, size_t dim = -1);
+		// ===== TIMESTAMP =====
+		bool enableTimestamp = false;
+		void setTimestampEnabled(bool enable) { enableTimestamp = enable; }
+		char* getTimestampString();
 		
 		// SSE
 		bool checkClientSSE();
@@ -132,7 +137,7 @@
 		
 		
 		private:
-				
+		
 		// Server interno
 		AsyncWebServer* server;
 		AsyncEventSource* eventsserial;
