@@ -787,7 +787,7 @@ void WebSerialSim::insHistory(const char* str){
 	#ifdef _TYPE_FS
 		if(directFS && actSerBuf){
 			File hfile = FS_STORY.open(FILE_HISTORY, FILE_APPEND);
-			if (enableTimestamp) hfile.write(getTimestampString(), 11);
+			if (enableTimestamp) hfile.write((const uint8_t*)getTimestampString(), 11);
 			hfile.write((const uint8_t*)str, dimstr);
 			hfile.close();
 			return;
