@@ -40,6 +40,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
             gap: 20px;
             font-size: 0.9rem;
             color: #ffffff;
+            flex-wrap: wrap;
         }
         .checkbox-container {
             display: flex;
@@ -70,10 +71,21 @@ const char serial_html[] PROGMEM = R"rawliteral(
         .log-line {
             min-height: 1.2em;
             line-height: 1.3;
+            transition: background-color 0.1s ease;
         }
         .show-linenum .log-line::before {
             content: "[" attr(data-line) "] ";
             color: #888888;
+        }
+
+        /* Stato filtro */
+        .log-line.hidden {
+            display: none;
+        }
+        .log-line.match {
+            background-color: #1a3a1a;
+            border-left: 2px solid #33ff33;
+            padding-left: 6px;
         }
 
         /* Scrollbar Custom */
@@ -102,11 +114,55 @@ const char serial_html[] PROGMEM = R"rawliteral(
             margin-right: 5px;
         }
 
+        /* Filter Bar per REGEX */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            flex-shrink: 0;
+            background-color: #121212;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #2a2a2a;
+            align-items: center;
+        }
+        .filter-label {
+            color: #aaa;
+            font-size: 0.85rem;
+            font-weight: bold;
+            min-width: 50px;
+        }
+        #filterInput {
+            flex-grow: 1;
+            background-color: #1a1a1a;
+            color: #33ff33;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px 10px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            outline: none;
+            min-width: 200px;
+        }
+        #filterInput:focus {
+            border-color: #33ff33;
+        }
+        #filterInput::placeholder {
+            color: #666;
+        }
+        .filter-count {
+            color: #aaa;
+            font-size: 0.85rem;
+            min-width: 60px;
+        }
+
         /* Input e Pulsanti Bar */
         .input-bar {
             display: flex;
             gap: 10px;
             flex-shrink: 0;
+            flex-wrap: wrap;
         }
         input[type=text] {
             flex-grow: 1;
@@ -118,6 +174,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
             font-family: inherit;
             font-size: 0.95rem;
             outline: none;
+            min-width: 200px;
         }
         input[type=text]:focus {
             border-color: #33ff33;
@@ -132,6 +189,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
             font-family: inherit;
             font-size: 0.85rem;
             transition: background-color 0.15s ease, border-color 0.15s ease;
+            white-space: nowrap;
         }
         .btn:hover { background-color: #3d3d3d; }
         
@@ -149,7 +207,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
 <body>
 
     <div class="header-container">
-        <h1>ESP32 Web Serial & BLE Monitor</h1>
+        <h1>ESP32 Web Serial Monitor</h1>
 
         <div class="controls-group">
             <label class="checkbox-container">
@@ -159,7 +217,12 @@ const char serial_html[] PROGMEM = R"rawliteral(
 
             <label class="checkbox-container">
                 <input type="checkbox" id="shownum-check" onchange="toggleLineNumbers(this.checked)">
-                Mostra Numerazione
+                Numerazione
+            </label>
+
+            <label class="checkbox-container">
+                <input type="checkbox" id="timestamp-check" onchange="toggleTimestamp(this.checked)">
+                Timestamp
             </label>
 
             <div>Utenti: <span id="counter-val" style="color: #66ff66; font-weight: bold;">1</span></div>
@@ -174,17 +237,31 @@ const char serial_html[] PROGMEM = R"rawliteral(
         <button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY ON')">ON</button>
         <button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY OFF')">OFF</button>
         <button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY INFO')">INFO</button>
-		<!--<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY VIEW')">VIEW</button>--->
-				<button class="btn btn-cmd" onclick="window.open('/view-buffer', '_blank');">VIEW</button>
-        <button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY FLUSH')">FLUSH (SD)</button>
-        <button class="btn btn-danger" onclick="sendDirectCommand('HISTORY CLEAR')">CLEAR</button>
+        <button class="btn btn-cmd" onclick="window.open('/view-buffer', '_blank');">VIEW</button>
+       <!-- <button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY FLUSH')">FLUSH</button> -->
+       <!--  <button class="btn btn-danger" onclick="sendDirectCommand('HISTORY CLEAR')">CLEAR</button> -->
+
+	<span class="filter-label">FILTER:</span>
+        <input type="text" id="filterInput" placeholder="Regex (es: ERROR|WARN)" autocomplete="off">
+        <span class="filter-count" id="filter-count"></span>
+        <button class="btn btn-clear" onclick="clearFilter()">Reset</button>
+
+
     </div>
+
+    <!-- Filter Bar per REGEX 
+    <div class="filter-bar">
+        <span class="filter-label">FILTER:</span>
+        <input type="text" id="filterInput" placeholder="Regex (es: ERROR|WARN)" autocomplete="off">
+        <span class="filter-count" id="filter-count"></span>
+        <button class="btn btn-clear" onclick="clearFilter()">Reset</button>
+    </div> -->
 
     <!-- Barra Input Comandi -->
     <div class="input-bar">
-        <input type="text" id="commandInput" placeholder="Inserisci comando (es. HELP, HISTORY INFO)..." autocomplete="off">
+        <input type="text" id="commandInput" placeholder="Inserisci comando..." autocomplete="off" autofocus>
         <button class="btn btn-cmd" onclick="sendCommand()">Invia</button>
-        <button class="btn btn-clear" onclick="clearMonitor()">Pulisci Schermo</button>
+        <button class="btn btn-clear" onclick="clearMonitor()">Pulisci</button>
     </div>
 
 <script>
@@ -193,10 +270,14 @@ if (!!window.EventSource) {
     const terminal = document.getElementById('serial-terminal');
     const autoscrollCheck = document.getElementById('autoscroll-check');
     const counterVal = document.getElementById('counter-val');
+    const filterCountSpan = document.getElementById('filter-count');
     
     let myClientId = null;
     let rigaNumero = 0;
     let scrollInAttesa = false;
+    let showTimestamp = false;
+    let lastTimestamp = "";
+    let currentFilterRegex = null;
 
     function toggleLineNumbers(show) {
         if (!terminal) return;
@@ -204,6 +285,15 @@ if (!!window.EventSource) {
             terminal.classList.add('show-linenum');
         } else {
             terminal.classList.remove('show-linenum');
+        }
+    }
+
+    function toggleTimestamp(enable) {
+        showTimestamp = enable;
+        if (enable) {
+            executePost("TIMESTAMP ON");
+        } else {
+            executePost("TIMESTAMP OFF");
         }
     }
     
@@ -226,12 +316,30 @@ if (!!window.EventSource) {
         const fragment = document.createDocumentFragment();
         
         righeInArrivo.forEach(function(riga) {
+            if (riga === "") return; // Skip righe vuote
+            
             rigaNumero++;
             
             const nuovaRigaDiv = document.createElement("div");
             nuovaRigaDiv.className = "log-line";
             nuovaRigaDiv.setAttribute("data-line", rigaNumero);
-            nuovaRigaDiv.textContent = riga;
+            
+            // Prependi timestamp se abilitato e disponibile
+            if (showTimestamp && lastTimestamp) {
+                nuovaRigaDiv.textContent = lastTimestamp + " " + riga;
+                lastTimestamp = "";  // Usa una sola volta
+            } else {
+                nuovaRigaDiv.textContent = riga;
+            }
+            
+            // Applica filtro se attivo
+            if (currentFilterRegex) {
+                if (currentFilterRegex.test(nuovaRigaDiv.textContent)) {
+                    nuovaRigaDiv.classList.add('match');
+                } else {
+                    nuovaRigaDiv.classList.add('hidden');
+                }
+            }
             
             fragment.appendChild(nuovaRigaDiv);
         });
@@ -243,6 +351,7 @@ if (!!window.EventSource) {
             terminal.removeChild(terminal.firstChild);
         }
         
+        updateFilterCount();
         requestScrollToBottom();
     }
     
@@ -269,10 +378,85 @@ if (!!window.EventSource) {
     source.addEventListener('serial_print', function(e) {
         appendToTerminal(e.data);
     }, false);
+
+    source.addEventListener('timestamp', function(e) {
+        lastTimestamp = e.data;
+    }, false);
+
+source.addEventListener('timestamp_enabled', function(e) {
+    showTimestamp = (e.data === "1");
+    document.getElementById('timestamp-check').checked = showTimestamp;
+    console.log("Timestamp " + (showTimestamp ? "abilitato" : "disabilitato"));
+}, false);
     
     source.addEventListener('client_count', function(e) {
         if (counterVal) counterVal.textContent = e.data;
     }, false);
+    
+    // --- REGEX FILTER ---
+    
+    function applyFilter() {
+        const filterInput = document.getElementById('filterInput');
+        const pattern = filterInput.value.trim();
+        
+        if (!pattern) {
+            clearFilter();
+            return;
+        }
+        
+        try {
+            currentFilterRegex = new RegExp(pattern, 'i'); // 'i' = case-insensitive
+            filterInput.style.borderColor = '#33ff33'; // Verde se valida
+        } catch (e) {
+            console.error("Regex non valida:", e);
+            filterInput.style.borderColor = '#ff6666'; // Rosso se invalida
+            return;
+        }
+        
+        updateFilterDisplay();
+    }
+
+    function updateFilterDisplay() {
+        const lines = document.querySelectorAll('.log-line');
+        
+        lines.forEach(line => {
+            if (currentFilterRegex && currentFilterRegex.test(line.textContent)) {
+                line.classList.remove('hidden');
+                line.classList.add('match');
+            } else if (currentFilterRegex) {
+                line.classList.add('hidden');
+                line.classList.remove('match');
+            } else {
+                line.classList.remove('hidden', 'match');
+            }
+        });
+        
+        updateFilterCount();
+    }
+
+    function updateFilterCount() {
+        if (!currentFilterRegex) {
+            filterCountSpan.textContent = "";
+            return;
+        }
+        
+        const matchCount = document.querySelectorAll('.log-line.match').length;
+        const totalCount = document.querySelectorAll('.log-line').length;
+        filterCountSpan.textContent = `${matchCount}/${totalCount}`;
+    }
+
+    function clearFilter() {
+        const filterInput = document.getElementById('filterInput');
+        filterInput.value = '';
+        currentFilterRegex = null;
+        filterInput.style.borderColor = '#444';
+        filterCountSpan.textContent = '';
+        
+        const lines = document.querySelectorAll('.log-line');
+        lines.forEach(line => {
+            line.classList.remove('hidden', 'match');
+        });
+    }
     
     // --- UTILITIES E INVIO COMANDI ---
     
@@ -290,6 +474,7 @@ if (!!window.EventSource) {
     function clearMonitor() {
         if (terminal) terminal.innerHTML = "";
         rigaNumero = 0;
+        filterCountSpan.textContent = '';
     }
     
     // Invio da input di testo
@@ -322,10 +507,19 @@ if (!!window.EventSource) {
         });
     }
     
+    // Event listeners
     document.getElementById('commandInput')?.addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
             event.preventDefault();
             sendCommand();
+        }
+    });
+
+    document.getElementById('filterInput')?.addEventListener('input', applyFilter);
+    document.getElementById('filterInput')?.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            applyFilter();
         }
     });
     
