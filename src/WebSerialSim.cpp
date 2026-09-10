@@ -2,6 +2,10 @@
 #include <stdarg.h>
 #include <time.h>
 
+// Seriale ─┐
+// Web HTTP ├──> coda comandi ───> taskList() ───> parser/callback
+// BLE ─────┘
+
 // ======================
 // COSTRUTTORE
 // ======================
@@ -10,6 +14,7 @@ WebSerialSim::WebSerialSim() {
 	server = nullptr;
 	eventsserial = nullptr;
 	
+	historyFileEnabled = true;
 	historySerBuf = nullptr;
 	actSerBuf = false;
 	pSerBuf = 0;
@@ -18,27 +23,27 @@ WebSerialSim::WebSerialSim() {
 	
 	//inPSRAM = false;
 	#ifdef BUFFER_PSRAM
-		bool inPSRAM = true;
+    inPSRAM = true;
 		#else
-		bool inPSRAM = false;
+    inPSRAM = false;
 	#endif
 	
 	
 	bufIndexIn = 0;		//
 	
-	comando = nullptr;
-	param1 = nullptr;
+	command = nullptr;
+	argument = nullptr;
 	
 	echon = false;
 	
 	fromin = FROMSER;
 	statoTask = IDLE;
 	
-	//pwd_executive = (char*)"Admin57";
-	
 	_callback = nullptr;
 	_callBLE = nullptr;
-	targetClient = nullptr;
+	
+	//targetClient = nullptr;
+	clientSSEGlobale = nullptr;
 }
 
 // Il cuore del sistema non bloccante
@@ -59,37 +64,31 @@ void WebSerialSim::printWeb(char* _datiprint) {
 		printBigBuf(_datiprint, strlen(_datiprint));
     } else {
 		sendWeb(_datiprint, strlen(_datiprint));
+		delay(2);
+		yield();
 	}
 }
 
-
 void WebSerialSim ::sendWeb(char* _dati, size_t len) {
 	
+	if (enableTimestamp) getTimestampString();
 	// 1. Echo su Serial (se abilitato)
 	if (fromin == FROMSER || echon) {
-		if (enableTimestamp) Serial.print(getTimestampString());
+		if (enableTimestamp) Serial.print(_timestamp);
 		Serial.write(_dati, len);
 	}
 	
-	if (fromin == FROMWEB && targetClient) {
+	if (fromin == FROMWEB && clientSSEGlobale) {
 		// ← NUOVO: Invia TIMESTAMP PRIMA se abilitato
-		if (enableTimestamp && canSendSSE(11)) {
-			/* char timestamp[32];
-				time_t now = time(nullptr);
-				struct tm* timeinfo = localtime(&now);
-				
-				snprintf(timestamp, sizeof(timestamp),
-				"[%02d:%02d:%02d]",
-				timeinfo->tm_hour,
-				timeinfo->tm_min,
-			timeinfo->tm_sec); */
-			
-			targetClient->send(getTimestampString(), "timestamp", millis(), 0);
+		//int spacetime = 0;
+		//if (enableTimestamp) spacetime = 11;
+		
+		if (enableTimestamp && canSendSSE(11)) {			
+			eventsserial->send(_timestamp, "timestamp", millis(), 0);
 		}
 		
-		// Poi invia i DATI come sempre
 		if (canSendSSE(len)) {
-			targetClient->send((const char*)_dati, "serial_print", millis(), 0);
+			eventsserial->send((const char*)_dati, "serial_print", millis(), 0);
 			} else {
 			// Fallback su Serial se SSE non può inviare
 			Serial.write(_dati, len);
@@ -101,13 +100,16 @@ void WebSerialSim ::sendWeb(char* _dati, size_t len) {
 	
 	// 3. Accumulo diretto nel buffer di cronologia (PSRAM o SRAM)
 	if (actSerBuf) {
+		if (enableTimestamp) {
+			insHistory(_timestamp);
+		}
 		insHistory(_dati);
 	}
 }
 
 // ===== TIMESTAMP HELPER =====
 char* WebSerialSim::getTimestampString() {
-	static char timestamp[16];  // "[HH:MM:SS] " = 11 char max
+	//static char timestamp[16];  // "[HH:MM:SS] " = 11 char max
 	
 	if (!enableTimestamp) {
 		return (char*)"";  // Ritorna stringa vuota se disabilitato
@@ -116,13 +118,13 @@ char* WebSerialSim::getTimestampString() {
 	time_t now = time(nullptr);
 	struct tm* timeinfo = localtime(&now);
 	
-	snprintf(timestamp, sizeof(timestamp),
+	snprintf(_timestamp, sizeof(_timestamp),
 		"[%02d:%02d:%02d] ",
 		timeinfo->tm_hour,
 		timeinfo->tm_min,
 	timeinfo->tm_sec);
 	
-	return timestamp;
+	return _timestamp;
 }
 
 //======================
@@ -132,20 +134,29 @@ char* WebSerialSim::getTimestampString() {
 size_t WebSerialSim::write(uint8_t m) {
 	// Chiamata diretta e sicura alla logica interna
 	return write(&m, 1);
+	//write(&m, 1);
+  //return (1);
 }
 
 size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 	if (size == 0 || buffer == nullptr) return 0;
+	//Serial.write(buffer, size);
+	//Serial.println(size);
+	//ultimoCarattereTime = millis();
 	
 	// Se il blocco in arrivo non sta nel buffer rimasto, svuota prima il buffer attuale
 	if (size + bufIndexIn >= DIMBUFFERIN - 1 && bufIndexIn != 0) {
 		bufferIn[bufIndexIn] = '\0';
-		printWeb(bufferIn);
+		//Serial.print("svuoto\n");
+		//Serial.print(bufferIn);
 		bufIndexIn = 0;
+		printWeb(bufferIn);
+		//bufIndexIn = 0;
 	}
 	
 	// Se il blocco singolo è più grande dell'intero buffer vuoto, bypassa l'accumulo
 	if (size >= DIMBUFFERIN - 1) {
+		//Serial.print("BIG\n");
 		printBigBuf((char*)buffer, size);
 		return size;
 	}
@@ -156,8 +167,8 @@ size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 	bufferIn[bufIndexIn] = '\0'; // Terminatore sicuro
 	
 	if (bufferIn[bufIndexIn - 1] == '\n') {
-		printWeb(bufferIn);
 		bufIndexIn = 0;
+		printWeb(bufferIn);
     } else {
 		ultimoCarattereTime = millis();
 	}
@@ -178,87 +189,46 @@ void WebSerialSim::printfWeb(const char* format, ...) {
 	printWeb(loc_buf);
 }
 
-
 void WebSerialSim::switchState(int fasestate){
 	statoTask = fasestate;
 }
 
-
+// ver NEW ===========================
 void WebSerialSim::printBigBuf(char *bigbuf, size_t dim) {
-	if (dim == -1 || dim == 0) dim = strlen(bigbuf);
-	
-	const size_t CHUNK_SIZE = 1440; // Ottimizzato sotto la soglia MTU standard (1460)
-	char chunkBuf[CHUNK_SIZE];
-	char lineBuf[512];
-	
-	chunkBuf[0] = '\0';
-	size_t chunkLen = 0;
-	size_t lineLen = 0;
-	size_t ibigbuf = 0;
-	
-	while (ibigbuf < dim) {
-		char c = bigbuf[ibigbuf++];
-		
-		if (c == '\n') {
-			// Se la stringa è solo un ritorno a capo o è vuota
-			//if(lineLen == 0){
-			//	lineBuf[lineLen++] = ' ';
-			//}
-			lineBuf[lineLen++] = '\n';
-			lineBuf[lineLen] = '\0';
-			
-			// Se aggiungere questa riga supera il chunk, svuota il chunk in rete
-			if (chunkLen + lineLen >= CHUNK_SIZE - 1) {
-				sendWeb(chunkBuf, chunkLen);
-				chunkBuf[0] = '\0';
-				chunkLen = 0;
-				delay(2); // Cede il passo allo stack di rete AsyncTCP
-			}
-			
-			memcpy(chunkBuf + chunkLen, lineBuf, lineLen);
-			chunkLen += lineLen;
-			chunkBuf[chunkLen] = '\0';
-			lineLen = 0;
-			} else {
-			// Se la riga supera la dimensione massima di sicurezza, forza uno split artificiale
-			if (lineLen >= sizeof(lineBuf) - 2) {
-				lineBuf[lineLen] = '\0';
-				if (chunkLen + lineLen >= CHUNK_SIZE - 1) {
-					sendWeb(chunkBuf, chunkLen);
-					chunkBuf[0] = '\0';
-					chunkLen = 0;
-					delay(2);
-				}
-				memcpy(chunkBuf + chunkLen, lineBuf, lineLen);
-				chunkLen += lineLen;
-				chunkBuf[chunkLen] = '\0';
-				lineLen = 0;
-			}
-			lineBuf[lineLen++] = c;
-		}
-	}
-	
-	// Gestione residuo ultima riga
-	if (lineLen > 0) {
-		lineBuf[lineLen] = '\0';
-		if (chunkLen + lineLen >= CHUNK_SIZE - 1) {
-			sendWeb(chunkBuf, chunkLen);
-			chunkBuf[0] = '\0';
-			chunkLen = 0;
-		}
-		memcpy(chunkBuf + chunkLen, lineBuf, lineLen);
-		chunkLen += lineLen;
-	}
-	
-	// Invio finale del chunk residuo
-	if (chunkLen > 0) {
-		// Se non finisce con \n, lo aggiungiamo in modo sicuro senza sforare
-		if (chunkBuf[chunkLen - 1] != '\n' && chunkLen < CHUNK_SIZE - 1) {
-			chunkBuf[chunkLen++] = '\n';
-		}
-		chunkBuf[chunkLen] = '\0';
-		sendWeb(chunkBuf, chunkLen);
-	}
+    if (bigbuf == NULL) return;
+    if (dim == 0) dim = strlen(bigbuf);
+    if (dim == 0) return;
+
+    if (dim < CHUNK_SIZE) {
+        sendWeb(bigbuf, dim);
+        return;
+    }
+
+    size_t srcIndex = 0;
+
+    while (srcIndex < dim) {
+        size_t remaining = dim - srcIndex;
+        size_t maxToRead = (remaining < CHUNK_SIZE - 1) ? remaining : (CHUNK_SIZE - 1);
+
+        int lastLfOffset = -1;
+        for (size_t i = 0; i < maxToRead; i++) {
+            if (bigbuf[srcIndex + i] == '\n') lastLfOffset = (int)i;
+        }
+
+        size_t sendLen = 0;
+        if (lastLfOffset != -1 && (srcIndex + maxToRead) < dim) {
+            sendLen = lastLfOffset + 1;
+        } else {
+            sendLen = maxToRead;
+        }
+
+        memcpy(chunkBuf, &bigbuf[srcIndex], sendLen);
+        chunkBuf[sendLen] = '\0';
+				delay(2);
+        sendWeb(chunkBuf, sendLen);
+        srcIndex += sendLen;
+    }
+		// end while
 }
 
 // ======================
@@ -270,17 +240,23 @@ bool WebSerialSim::checkClientSSE() {
 
 bool WebSerialSim::canSendSSE(size_t requiredSpace) {
 	
-	if (eventsserial->count() == 0)
-	return false;
+	//if (eventsserial->count() == 0)	return false;
+	
+	if (eventsserial->count() == 0 || !clientSSEGlobale->connected()) {
+		clientSSEGlobale = nullptr;
+		Serial.println(F("Client disconnesso!"));
+		//clientSSEGlobale->send("[SSE] Client Disconesso\n", "serial_print", millis(), 0);
+		return false;
+	}
 	
 	uint32_t startWait = millis();
 	
-	while (targetClient &&
-		(targetClient->client()->space() < (requiredSpace + 64) ||
-		!targetClient->client()->canSend())) {
+	while (clientSSEGlobale &&
+		(clientSSEGlobale->client()->space() < (requiredSpace + 64) ||
+		!clientSSEGlobale->client()->canSend())) {
 		
-		if (eventsserial->count() == 0 || !targetClient->connected()) {
-			targetClient = nullptr;
+		if (eventsserial->count() == 0 || !clientSSEGlobale->connected()) {
+			clientSSEGlobale = nullptr;
 			Serial.println(F("Client disconnesso!"));
 			return false;
 		}
@@ -313,42 +289,36 @@ void WebSerialSim::taskList() {
 void WebSerialSim::readserial(char* buffer_ch, int max_ch) {
 	
 	static int p_buf = 0;
-	char ch_tmp;
-	bool end_input = false;
-	
 	while (Serial.available()) {
+		char c = Serial.read();
 		
-		ch_tmp = Serial.read();
-		
-		if (ch_tmp == '\n') {
+		if (c == '\n') {
 			buffer_ch[p_buf] = '\0';
-			end_input = true;
-			} else if (ch_tmp != '\r' && p_buf < max_ch - 1) {
-			buffer_ch[p_buf] = ch_tmp;
-			p_buf++;
+			
+			if (statoTask != IDLE) {
+				Serial.println(F("Sistema occupato"));
+				p_buf = 0;
+				return;
+				} else if (p_buf > 0) {
+				fromin = FROMSER;
+				statoTask = PARSING;
+				p_buf = 0;
+				return; // parsing nel prossimo taskList()
+			}
+			
+			p_buf = 0;
+			} else if (c != '\r' && p_buf < max_ch - 1) {
+			buffer_ch[p_buf++] = c;
 		}
-		
-		delay(5);
 	}
 	
-	if (end_input) {
-		p_buf = 0;
-		//trimmer(buffer_ch);
-		
-		if (statoTask != IDLE) {
-			Serial.println(F("Sistema occupato"));
-			} else {
-			fromin = FROMSER;
-			statoTask = PARSING;
-		}
-	}
 }
 
 bool WebSerialSim::inputEXT(char* inExt, int lenb) {
 	
 	if (statoTask != IDLE)
 	return false;
-	
+	if(lenb > LEN_BUF_SER) lenb = LEN_BUF_SER;
 	memcpy(buffer_ser, inExt, lenb);
 	statoTask = PARSING;
 	fromin = FROMBT;
@@ -358,45 +328,71 @@ bool WebSerialSim::inputEXT(char* inExt, int lenb) {
 
 void WebSerialSim::parsingCmd() {
 	
-	comando = buffer_ser;
+	command = nullptr;
+	argument = nullptr;
 	
-	if (strstr(buffer_ser, "TIMESTAMP") != NULL) {
-		if (strstr(buffer_ser, "ON") != NULL) {
+	// 1. comando principale
+	command = strtok(buffer_ser, " ");
+	if (command == NULL) {
+		println("Comando Empty..");
+		return;
+	}
+	
+	// 2. primo parametro (se esiste)
+	argument = strtok(NULL, " ");
+	
+	if (argument == nullptr) argument = command;
+	
+	// TIMESTAMP
+	if (strcmp(command, "TIMESTAMP") == 0) {
+		if (strcmp(argument, "ON") == 0) { 
 			enableTimestamp = true;
-			if (targetClient) targetClient->send("1", "timestamp_enabled", millis(), 0);
-      printWeb("Timestamp abilitato\n");
-			
-			} else if (strstr(buffer_ser, "OFF") != NULL) {
+			if (clientSSEGlobale) eventsserial->send("1", "timestamp_enabled", millis(), 0);
+			printWeb("Timestamp abilitato\n");
+		}
+		else if (strcmp(argument, "OFF") == 0) { 
 			enableTimestamp = false;
-			if (targetClient) targetClient->send("0", "timestamp_enabled", millis(), 0);
+			if (clientSSEGlobale) eventsserial->send("0", "timestamp_enabled", millis(), 0);
 			printWeb("Timestamp disabilitato\n");
 		}
+		//else { printWeb("Uso: TIMESTAMP ON|OFF\n"); }
 		statoTask = IDLE;
 		return;
 	}
 	
-	if (strstr(buffer_ser, "HISTORY") != NULL) {
-		parsinghistory(comando);
-    } else {
-		if(_callback != nullptr) {
-			_callback(comando, param1);
+	// HISTORY
+	if (strcmp(command, "HISTORY") == 0) {
+		parsinghistory(argument);
+		statoTask = IDLE;
+		return;
+	}
+	
+	//  CONFIG
+	if (strcmp(command, "CONFIG") == 0) {
+		if(actSerBuf){
+			printWeb("Stoppare History prima!\n");
+			} else if (strcmp(argument, "NOFS") == 0) {
+			setHistoryFile(false);
+			printWeb("Disabilitato LOG FS\n");
+			} else if (strcmp(argument, "FS") == 0) {
+			setHistoryFile(true);
+			printWeb("Abilitato LOG FS\n");
+			} else {
+			//
+			uint32_t amoutbuf = strtoul(argument, NULL, 10);
+			setbuffer(amoutbuf);
+			printfWeb("Dimensione buffer: %lu\n", amoutbuf);
 		}
+		statoTask = IDLE;
+		return;
+	} 
+	// ALTRO
+	if(_callback != nullptr) {
+		if(argument != command) *(argument - 1) = ' '; 
+		_callback(buffer_ser);
 	}
 	
 	statoTask = IDLE;
-	
-	/* comando = buffer_ser;
-		//param1 = nullptr;
-		
-		if (strstr(buffer_ser, "HISTORY") != NULL){
-		parsinghistory(comando);
-		}else{
-		if(_callback != nullptr){
-		_callback(comando, param1);
-		}
-		}
-		
-	statoTask = IDLE; */
 }
 
 void WebSerialSim::echoOnOff(bool onoff){
@@ -425,51 +421,83 @@ void WebSerialSim::setCallBLE(CallbackBLE cb) {
 //void WebSerialSim::begin(int port) {
 void WebSerialSim::begin(AsyncWebServer* mainServer) {
 	
+	modestory(true);
 	
-	//server = new AsyncWebServer(port);
-	// Salviamo il riferimento al server dello sketch
 	server = mainServer;
 	
 	// Inizializziamo l'Event Source (SSE)
 	eventsserial = new AsyncEventSource("/events/serial");
-	
-	clientsMutex = xSemaphoreCreateMutex();
 	
 	// Pagina HTML
 	server->on("/serial", HTTP_GET, [&](AsyncWebServerRequest* request) {
 		request->send_P(200, "text/html", serial_html);
 	});
 	
-	// Rotta per servire il buffer di testo
-  server->on("/view-buffer", HTTP_GET, [this](AsyncWebServerRequest *request){
-    // Invia il buffer direttamente dalla memoria
-		if(directFS){
-			#ifdef FS_STORY
-				if (FS_STORY.exists("/history.txt")) {
-					// Invia il file:
-					// Parametri: LittleFS, percorso file, mime-type (text/plain)
-					request->send(FS_STORY, "/history.txt", "text/plain");
-					} else {
-					request->send(404, "text/plain", "File non trovato!");
-				}
-			#endif
-			}else {
-			unrollBuffer();
-			request->send(200, "text/plain", historySerBuf);
+	// Rotta per VIEW/DOWN il buffer o il history
+	server->on("/buffer", HTTP_GET, [this](AsyncWebServerRequest *request) {
+		
+		char action[16] = {0};
+		
+		if (request->hasArg("action")) {
+			request->arg("action").toCharArray(action, sizeof(action) - 1);
+			} else {
+			strcpy(action, "view");   // default
 		}
 		
-	});
-	
-	// CONTEGGIO clients ONLINE
-	
-	server->on("/get-clientcount", HTTP_GET, [this](AsyncWebServerRequest* request) {
-		char countBuf[8];
-		snprintf(countBuf, sizeof(countBuf), "%u", (unsigned int)activeClients.size());
-		if (eventsserial != nullptr) { // o eventsserial
-			eventsserial->send(countBuf, "client_count", millis(), 0);
+		bool isfilehistory = false;
+		// in ogni caso faccio un "fHistoryFlush()" se esiste buffer
+		// poi se view visualizzo  file o down faccio il download
+		#ifdef _TYPE_FS
+			if(historyFileEnabled && historySerBuf) {
+				fHistoryFlush();
+			}
+			
+			if (FS_STORY.exists(FILE_HISTORY)) {
+				isfilehistory = true;
+			}
+		#endif
+		
+		if (!isfilehistory && !historySerBuf){
+			request->send(404, "text/plain", "File e buffer history non trovato");
+			return;
 		}
-		request->send(200, "text/plain", countBuf);
+		
+		if (strcmp(action, "down") == 0){
+			#ifdef _TYPE_FS
+				if(isfilehistory)	{
+					AsyncWebServerResponse *response =
+					request->beginResponse(FS_STORY, FILE_HISTORY, "text/plain");
+					response->addHeader("Content-Disposition", "attachment; filename=history.txt");
+					request->send(response);
+				}
+			#endif
+			return;
+		}
+		
+		if (strcmp(action, "view") == 0){
+			if(isfilehistory){
+				#ifdef _TYPE_FS
+					request->send(FS_STORY, "/history.txt", "text/plain");
+				#endif
+				} else {
+				if(pSerBuf > 0 || fullbuffer) request->send(200, "text/plain", historySerBuf);
+			}
+		}		
+		// END
 	});
+	
+	// rotta DELETE HISTORY
+	server->on("/delhistory", HTTP_GET, [&](AsyncWebServerRequest* request) {
+		if (!FS_STORY.exists(FILE_HISTORY)) {
+			//request->send(404, "text/plain", "File history non trovato");
+			request->send_P(200, "text/plain", "File history non trovato");
+			return;
+			}else {
+			FS_STORY.remove(FILE_HISTORY);
+			request->send_P(200, "text/html", "Deleted..");
+		}
+	});
+	
 	
 	// POST parsingCmd
 	server->on("/parsingCmd", HTTP_POST,
@@ -482,53 +510,21 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 				return;
 			}
 			
-			// Creiamo una stringa partendo dai dati ricevuti nel corpo del POST
-			for (size_t i = 0; i < len; i++) {
-				buffer_ser[i] = (char)data[i];
-			}
-			buffer_ser[len] = '\0';
 			
+			memcpy(buffer_ser + index, data, len);
 			
-			// prima cerco ed estraggo puntator client es:1070340744:DIR
-			char* tokenNumero = strtok(buffer_ser, ":");
-			
-			if (tokenNumero != NULL) {
-				// 2. Estrai il resto della frase (passando NULL a strtok)
-				char* tokenFrase = strtok(NULL, "");  // "" legge tutto il resto fino alla fine
-				
-				// Converte il testo in un numero uint32_t (base 10)
-				uint32_t puntatoreClient = strtoul(tokenNumero, NULL, 10);
-				AsyncEventSourceClient* clientTmp = nullptr;
-				
-				//targetClient = nullptr;
-				for (auto client : activeClients) {
-					if ((uint32_t)client == puntatoreClient) {
-						
-						if (statoTask != 0) {
-							clientTmp = client;
-							//printWeb("SistemaOccupat0!!\n");
-							clientTmp->send("SistemaOccupato!!\n", "serial_print", millis(), 0);
-							return;
-						}
-						targetClient = client;
-						break;
-					}
-				}
-				if (targetClient == nullptr) {
-					Serial.println(F("Errore CLIENT PTR"));
-					return;
-				}
-				
-				// Spostiamo la frase all'inizio di bufferInput.
-				// Usiamo strlen(tokenFrase) + 1 per includere anche il carattere di fine stringa '\0'
-				memcpy(buffer_ser, tokenFrase, strlen(tokenFrase) + 1);
-				
-				fromin = FROMWEB;  // dico che arriva da web
+			if (index + len == total) {
+				buffer_ser[total] = '\0';
+				fromin = FROMWEB;
 				statoTask = PARSING;
+				request->send(200, "text/plain", "OK");
 			}
 			
-			// Rispondi al client per chiudere la connessione HTTP correttamente
-			request->send(200, "text/plain", "OK");
+			/* fromin = FROMWEB;  // dico che arriva da web
+				statoTask = PARSING;
+				
+				// Rispondi al client per chiudere la connessione HTTP correttamente
+			request->send(200, "text/plain", "OK"); */
 		}
 	);
 	
@@ -537,25 +533,17 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 		
 		Serial.println(F("--- [SSE] Un browser si è appena connesso! ---"));
 		
-		if (xSemaphoreTake(clientsMutex, portMAX_DELAY) == pdTRUE) {
-			activeClients.push_back(client);
-			targetClient = client;
-			xSemaphoreGive(clientsMutex);
+		//se esisteva un altro client connesso
+		if(clientSSEGlobale){
+			clientSSEGlobale->send("[SSE] Client Disconesso\n", "serial_print", millis(), 0);
 		}
 		
-		// TRUCCO: Convertiamo il puntatore della memoria in un ID numerico unico (uint32_t)
-		uint32_t clientId = (uint32_t)client;
-		// Generiamo una stringa con l'ID univoco assegnato dall'ESP32 a questo client (es. "ID_ASSEGNATO:1")
-		//String infoId = "ID_ASSEGNATO:" + String(clientId);
-		//client->send(infoId.c_str(), "message", millis(), 1000);
-		char infoId[32];
-		snprintf(infoId, sizeof(infoId), "ID_ASSEGNATO:%u", (unsigned int)(uintptr_t)client);
-		client->send(infoId, "message", millis(), 1000);
-		
-		Serial.printf("Nuovo client. ID (RAM Address): %u. Totali: %d\n", clientId, activeClients.size());
+		clientSSEGlobale = client;
+		// size_t totali = eventsserial.count() + 1;
+		Serial.printf("[SSE] Client connessi totale: %d\n", eventsserial->count() + 1);
 		
 		if (statoTask == 0) {
-			fromin = FROMWEB;  // metto gia che dati arrivano da web per printWeb debug del codice
+			fromin = FROMWEB;
 		}
 		
 	});
@@ -565,35 +553,17 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 		
 		// Questo metodo riceve nativamente il puntatore corretto quando un client si stacca
 		
+		Serial.printf("[SSE] Client disconnesso. Rimasti: %d\n", eventsserial->count());
 		
-		if (xSemaphoreTake(clientsMutex, portMAX_DELAY) == pdTRUE) {
-			// Cerchiamo il puntatore direttamente nel vettore
-			auto it = std::find(activeClients.begin(), activeClients.end(), client);
-			if (it != activeClients.end()) {
-				activeClients.erase(it);
-			}
-			// Se nel vettore è rimasto almeno un altro client attivo, lo promuoviamo a nuovo target
-			if (!activeClients.empty()) {
-				targetClient = activeClients.front();  // .front() prende il primo client disponibile nella lista
-				//Serial.printf("Nuovo targetClient assegnato automaticamente: %u\n", (uint32_t)targetClient);
-				} else {
-				// Se non è rimasto più nessuno, resettiamo a nullptr
-				targetClient = nullptr;
-				//Serial.println("Non ci sono altri client disponibili. targetClient resettato a NULL.");
-			}
-			xSemaphoreGive(clientsMutex);
-		}
+		Serial.print("[SSE] Client disconnesso. \n");
 		
-		Serial.printf("[SSE] Client %u disconnesso. Rimasti: %d\n", (uint32_t)client, activeClients.size());
-		
-		if (activeClients.size() > 0) {
-			eventsserial->send(String(activeClients.size()), "client_count", millis(), 0);
+		if (clientSSEGlobale == client) {
+			clientSSEGlobale = nullptr;
 		}
 		
 	});
 	
 	server->addHandler(eventsserial);
-	//server->begin();
 	
 	Serial.println(F("WebSerialSim avviato"));
 }
@@ -641,51 +611,55 @@ void WebSerialSim::unrollBuffer() {
 
 void WebSerialSim::modestory(bool action) {
 	
-	if(action){
-		if(attivaBufferPSRAM())actSerBuf = true;
-		}else{
-		actSerBuf = false;
+	if (action) {
+		actSerBuf = attivaBufferPSRAM();
+		infoSerBuf();
+		return;
 	}
 	
-	if(!action){
-		actSerBuf = false;
-		delay(5);
-		if (historySerBuf){
-			actSerBuf = false;
-			fHistoryFlush();
-			free(historySerBuf);
-			historySerBuf = nullptr;
-		}
+	// Spegni HISTORY
+	actSerBuf = false;
+	delay(5);
+	
+	if (historySerBuf) {
+		fHistoryFlush();     // salva su file prima di liberare
+		free(historySerBuf);
+		historySerBuf = nullptr;
 	}
+	
 	infoSerBuf();
+}
+
+void WebSerialSim::setHistoryFile(bool enable) {
+	historyFileEnabled = enable;
 }
 
 void WebSerialSim::setbuffer(size_t _dimbuffer) {
 	dimSerBuf = _dimbuffer;
 	if(_dimbuffer != 0 && _dimbuffer < 1500)
 	Serial.println(F("Attenzione buffer too small ..almeno 1500"));
-	modestory(true);
+	//modestory(true);
 }
 
 void WebSerialSim::parsinghistory(char *opzion) {
 	//Serial.println(opzion);
 	
 	if (strstr(opzion, "ON") != NULL) {
-    modestory(true);
-    //printWeb("-HISTORY ATTIVO\n");
+		modestory(true);
+		//printWeb("-HISTORY ATTIVO\n");
 		} else if (strstr(opzion, "OFF") != NULL) {
-    modestory(false);
-    //printWeb("-HISTORY disattivato\n");
-		} else if (strstr(opzion, "VIEW") != NULL) {
-    fViewHistory();
-		} else if (strstr(opzion, "CLEAR") != NULL) {
-    fHistoryClear();
+		modestory(false);
+		//printWeb("-HISTORY disattivato\n");
+		//} else if (strstr(opzion, "VIEW") != NULL) {
+		//fViewHistory();
+		//} else if (strstr(opzion, "CLEAR") != NULL) {
+		//fHistoryClear();
 		} else if (strstr(opzion, "FLUSH") != NULL) {
-    fHistoryFlush();
+		fHistoryFlush();
 		} else if (strstr(opzion, "INFO") != NULL) {
-    infoSerBuf();
+		infoSerBuf();
 		} else {
-    printWeb("-OPZIONE non valida!\n");
+		printWeb("-OPZIONE non valida!\n");
 	}
 	
 }
@@ -693,36 +667,59 @@ void WebSerialSim::parsinghistory(char *opzion) {
 
 bool WebSerialSim::attivaBufferPSRAM() {
 	
-	
 	if (historySerBuf != nullptr) {
-		Serial.print(F("-BUFFER già attivo\n"));
+		Serial.println(F("-BUFFER già attivo"));
 		return true;
 	}
 	
 	pSerBuf = 0;
+	fullbuffer = false;
 	
-	if(dimSerBuf == 0){
+	// Se dimSerBuf = 0 → modalità directFS
+	if (dimSerBuf == 0) {
 		#ifdef _TYPE_FS
 			directFS = true;
 		#endif
 		return true;
 	}
 	
-	
-	if(inPSRAM){
+	// ============================
+	// 1. Tentativo PSRAM
+	// ============================
+	if (inPSRAM && psramFound()) {
 		
-		if(!psramFound()){
-			Serial.println(F("-PSRAM NON RILEVATA o DISABILITATA"));
-			inPSRAM = false;
-			}else {
-			historySerBuf = (char*)ps_malloc(dimSerBuf + 1);
+		Serial.printf("Richiedo n:%lu byte\n", dimSerBuf);
+		
+		historySerBuf = (char*) heap_caps_malloc(
+			dimSerBuf + 1,
+			MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+		);
+		
+		if (historySerBuf) {
+			Serial.printf("-Allocato %u byte in PSRAM\n", dimSerBuf);
 		}
-		
-		}else{
-		historySerBuf = (char *) malloc(dimSerBuf + 1);
 	}
 	
+	// ============================
+	// 2. Fallback su SRAM interna
+	// ============================
+	if (!historySerBuf) {
+		
+		Serial.println(F("-Allocazione PSRAM fallita, uso SRAM"));
+		
+		historySerBuf = (char*) heap_caps_malloc(
+			dimSerBuf + 1,
+			MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+		);
+		
+		if (historySerBuf) {
+			Serial.printf("-Allocato %u byte in SRAM\n", dimSerBuf);
+		}
+	}
 	
+	// ============================
+	// 3. Fallimento totale
+	// ============================
 	if (!historySerBuf) {
 		printWeb("-ERRORE allocazione Buffer HISTORY\n");
 		actSerBuf = false;
@@ -731,100 +728,93 @@ bool WebSerialSim::attivaBufferPSRAM() {
 	}
 	
 	memset(historySerBuf, 0, dimSerBuf + 1);
-	printWeb("-HISTORY buffer creato\n");
+	
 	actSerBuf = true;
+	printWeb("-HISTORY buffer creato\n");
 	
 	return true;
-	
-}
-
-void WebSerialSim::fHistoryClear() {
-	
-	bool riaccendi = actSerBuf;
-	actSerBuf = false;
-	if (!historySerBuf) {
-		printWeb("-BUFFER non presente\n");
-		actSerBuf = riaccendi;
-		return;
-	}
-	
-	historySerBuf[0] = '\0';
-	pSerBuf = 0;
-	fullbuffer = false;
-	actSerBuf = riaccendi;
 }
 
 void WebSerialSim::fHistoryFlush() {
 	#ifdef _TYPE_FS
+		
 		bool riaccendi = actSerBuf;
 		actSerBuf = false;
-		
 		if (!historySerBuf) {
-			printWeb("-BUFFER non presente\n");
+			//printWeb("-BUFFER non presente\n");
+			actSerBuf = riaccendi;
+			return;
+			}else if (pSerBuf == 0) {
+			//printWeb("-BUFFER  vuoto\n");
 			actSerBuf = riaccendi;
 			return;
 		}
 		
-		if (pSerBuf > 0){
-			// ci sono dati nel buffer da aggiornare
-			File hfile = FS_STORY.open(FILE_HISTORY, FILE_APPEND);
-			hfile.write((const uint8_t*)historySerBuf, pSerBuf);
-			hfile.close();
-		}
-		
+		bool preenable = historyFileEnabled;
+		fregbuffer(pSerBuf);
 		pSerBuf = 0;
+		fullbuffer = false;
+		memset(historySerBuf, 0, dimSerBuf + 1);
+		historyFileEnabled = preenable;
 		actSerBuf = riaccendi;
 	#endif
 }
 
 void WebSerialSim::insHistory(const char* str){
 	
-	int dimstr = strlen(str);
-	// per sicurezza se la str e' piu lunga del buffer ..tronco
-	// accertarsi sempre che il buffer sia almeno 1500 byte
-	if(dimstr >= dimSerBuf) dimstr = dimSerBuf -1;
+	//if(!actSerBuf || !historySerBuf) return;
+	if (!actSerBuf) return;
 	
 	#ifdef _TYPE_FS
-		if(directFS && actSerBuf){
+		if(directFS && actSerBuf && historyFileEnabled){
 			File hfile = FS_STORY.open(FILE_HISTORY, FILE_APPEND);
-			if (enableTimestamp) hfile.write((const uint8_t*)getTimestampString(), 11);
-			hfile.write((const uint8_t*)str, dimstr);
+			if (enableTimestamp) hfile.write((const uint8_t*)_timestamp, 11);
+			//hfile.write((const uint8_t*)str, dimstr);
+			hfile.write((const uint8_t*)str, strlen(str));
 			hfile.close();
 			return;
 		}
 	#endif
 	
-	if(!actSerBuf || !historySerBuf) return;
 	
-  int spazio_alla_fine = dimSerBuf - pSerBuf;
+	int dimstr = strlen(str);
+	// per sicurezza se la str e' piu lunga del buffer ..tronco
+	// accertarsi sempre che il buffer sia almeno 1500 byte
+	if(dimstr >= dimSerBuf) dimstr = dimSerBuf -1;
+	
+	if (!historySerBuf) return;
+	
+	int spazio_alla_fine = dimSerBuf - pSerBuf;
 	
 	if (dimstr <= spazio_alla_fine) {
-    // Caso 1: La stringa ci sta tutta di seguito fino alla fine del buffer
-    memcpy(&historySerBuf[pSerBuf], str, dimstr);
-    pSerBuf += dimstr;
+		// Caso 1: La stringa ci sta tutta di seguito fino alla fine del buffer
+		memcpy(&historySerBuf[pSerBuf], str, dimstr);
+		pSerBuf += dimstr;
 		if (pSerBuf == dimSerBuf){
 			pSerBuf = 0;
 			fullbuffer = true;
+			// rec su sd prima di sovrascrivere ------------------
+			#ifdef _TYPE_FS
+				fregbuffer(dimSerBuf);
+			#endif
 		}
-		//if(!fullbuffer) historySerBuf[pSerBuf + dimstr] = '\0';
-		
-		} else {
-    // Caso 2: La stringa si deve spezzare in due (una parte alla fine, il resto all'inizio)
-    int prima_parte = spazio_alla_fine;
-    int seconda_parte = dimstr - spazio_alla_fine;
-		
-    memcpy(&historySerBuf[pSerBuf], str, prima_parte);
-		
-		// rec su sd prima di sovrascrivere ------------------
-		#ifdef _TYPE_FS
-			if(!directFS) fregbuffer();
-		#endif
-		
-    memcpy(historySerBuf, &str[prima_parte], seconda_parte);
-		
-    pSerBuf = seconda_parte;
-    fullbuffer = true; // Il buffer ha completato almeno un giro completo
+		return;
 	}
+	// Caso 2: La stringa si deve spezzare in due (una parte alla fine, il resto all'inizio)
+	int prima_parte = spazio_alla_fine;
+	int seconda_parte = dimstr - spazio_alla_fine;
+	
+	memcpy(&historySerBuf[pSerBuf], str, prima_parte);
+	
+	// rec su sd prima di sovrascrivere ------------------
+	#ifdef _TYPE_FS
+		fregbuffer(dimSerBuf);
+	#endif
+	
+	memcpy(historySerBuf, &str[prima_parte], seconda_parte);
+	
+	pSerBuf = seconda_parte;
+	fullbuffer = true; // Il buffer ha completato almeno un giro completo
 	
 }
 
@@ -835,36 +825,32 @@ void WebSerialSim::infoSerBuf() {
 	actSerBuf = false;
 	
 	#ifdef _TYPE_FS
-		printfWeb("-Funzione LOG File Attiva su %s\n", _TYPE_FS);
-		#else
-		printWeb("-Funzione LOG File NON attiva\n");
-		//actSerBuf = riaccendi;
-		//return;
+		printfWeb("-LOG File: %s\n", historyFileEnabled ? "ATTIVO" : "NON attivo");
 	#endif
-	
-	/* #ifdef _TYPE_FS
-		printfWeb("- File su %s\n", _TYPE_FS);
-	#endif */
 	
 	if (!historySerBuf) {
 		printWeb("-BUFFER non presente\n");
 		} else {
-		printfWeb("-Dimensione buffer: %u byte", dimSerBuf);
-		printfWeb("-Occupati: %u byte", fullbuffer ? dimSerBuf : pSerBuf);
-		printfWeb("-Buffer in %s\n", (inPSRAM) ? "PSRAM" : "SRAM");
+		printfWeb("-Dimensione buffer: %u byte\n", dimSerBuf);
+		printfWeb("-Occupati: %u byte\n", fullbuffer ? dimSerBuf : pSerBuf);
+		printfWeb("-Memoria: %s\n", inPSRAM ? "PSRAM" : "SRAM");
+		#ifdef _TYPE_FS
+			if (directFS && historyFileEnabled)
+			printWeb("-LOG diretto su file\n");
+		#endif
 	}
 	
-	#ifdef _TYPE_FS
-		if(directFS) printWeb("-LOG DIRETTO su File..\n");
-	#endif
-	printfWeb("-STATO %s..\n", riaccendi ? "RUN" : "PAUSA");
+	printfWeb("-STATO %s\n", riaccendi ? "RUN" : "PAUSA");
 	
 	actSerBuf = riaccendi;
 }
 
-void WebSerialSim::fregbuffer() {
+
+void WebSerialSim::fregbuffer(size_t amount) {
 	#define oldstory "/oldstory.txt"
-	//#ifdef HISTORY_FS
+	
+	if (!historyFileEnabled) return;
+	
 	#ifdef _TYPE_FS
 		
 		File h = FS_STORY.open(FILE_HISTORY, FILE_APPEND);
@@ -872,47 +858,20 @@ void WebSerialSim::fregbuffer() {
 		bool riaccendi = actSerBuf;
 		actSerBuf = false;
 		
-		if (pSerBuf > 0) {
-			h.write((const uint8_t*)historySerBuf, dimSerBuf);
+		if (amount > 0) {
+			h.write((const uint8_t*)historySerBuf, amount);
 		}
 		
 		actSerBuf = riaccendi;
 		
-		if (h && h.size() > MAXSIZEFILE_HISTORY) {
+		if (h.size() > MAXSIZEFILE_HISTORY) {
 			h.close();
 			FS_STORY.remove(oldstory);
 			FS_STORY.rename(FILE_HISTORY, oldstory);
-			} else if (h) {
+			} else {
 			h.close();
 		}
 	#endif
-}
-
-void WebSerialSim::fViewHistory() {
-	
-	bool riaccendi = actSerBuf;
-	actSerBuf = false;
-	
-	if (!historySerBuf || (!fullbuffer && pSerBuf == 0)) {
-		printWeb("-BUFFER non presente o vuoto..\n");
-		actSerBuf = riaccendi;
-		return;
-	}
-	
-  printWeb("\n--- CONTENUTO DEL BUFFER ---\n");
-	
-  if (fullbuffer) {
-		// Se è pieno, stampa prima dalla posizione attuale alla fine del buffer (dati vecchi)
-		printBigBuf(&historySerBuf[pSerBuf], dimSerBuf - pSerBuf);
-	}
-	
-  // Stampa dall'inizio del buffer fino alla posizione attuale (dati nuovi)
-  if (pSerBuf > 0) {
-		printBigBuf(historySerBuf, pSerBuf);
-	}
-	printWeb("\n----------------------------\n");
-	
-	actSerBuf = riaccendi;
 }
 
 WebSerialSim::~WebSerialSim() {
@@ -924,8 +883,8 @@ WebSerialSim::~WebSerialSim() {
 		free(historySerBuf);
 		historySerBuf = nullptr;
 	}
-	if (clientsMutex) {
+	/* if (clientsMutex) {
 		vSemaphoreDelete(clientsMutex);
 		clientsMutex = nullptr;
-	}
-}
+	} */
+}		
