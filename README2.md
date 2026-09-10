@@ -478,10 +478,8 @@ La libreria dispone di un parser interno per i comandi principali e permette ino
 La callback ha la forma:
 
 ```cpp
-using CallbackFunzione = void (*)(char*, char*);
+using CallbackFunzione = void (*)(char*);
 ```
-
-Il primo parametro rappresenta il comando, mentre il secondo contiene l'eventuale argomento.
 
 Questo permette di utilizzare WebSerialSim anche come una semplice console di comando remota.
 
@@ -609,6 +607,8 @@ Per la modalità History su SD viene utilizzata la libreria:
 
 ```cpp
 SD
+o LittleFS
+o SD_MMC
 ```
 
 Il supporto al filesystem può essere configurato nel file header.
