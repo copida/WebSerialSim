@@ -1,5 +1,5 @@
 #ifndef WEB_SERIAL_SIM_H
-	#define WEB_SERIAL_SIM_H
+#define WEB_SERIAL_SIM_H
 	
 	#include <Arduino.h>
 	#include <ESPAsyncWebServer.h>
@@ -14,6 +14,7 @@
 	#define MAXSIZEBUFFER_HISTORY 4000
 	//#define MAXSIZEBUFFER_HISTORY 0
 	#define BUFFER_PSRAM
+	#define CHUNK_SIZE 1440 // Ottimizzato sotto la soglia MTU standard (1460)
 	
 	#if HISTORY_FS
 		
@@ -47,7 +48,7 @@
 		
 	#endif
 	
-	using CallbackFunzione = void (*)(char*, char*);
+	using CallbackFunzione = void (*)(char*);
 	using CallbackBLE = void (*)(char*);
 	
 	
@@ -69,7 +70,7 @@
 	#define LEN_BUF_SER 60
 	#define PRINTF_LENMAX 256
 	
-	// Eredita direttamente da Print
+	
 	class WebSerialSim : public Print {
 		
 		public:
@@ -79,13 +80,10 @@
 		// =========================================================================
 		// METODI VIRTUALI DI PRINT (Sostituiscono i vecchi template / String)
 		// =========================================================================
-		// Scrittura singolo carattere (obbligatorio per ereditare da Print)
-		virtual size_t write(uint8_t c) override;
 		
-		// Scrittura a blocco (fondamentale per stringhe, printf e array di char)
+		virtual size_t write(uint8_t c) override;
 		virtual size_t write(const uint8_t *buffer, size_t size) override;
 		
-		// Rende visibili anche gli altri sovraccarichi di write della classe base
 		using Print::write;
 		// =========================================================================
 		
@@ -97,17 +95,18 @@
 		void modestory(bool action);
 		bool attivaBufferPSRAM();
 		void setbuffer(size_t _dimbuffer);
+		void setHistoryFile(bool enable);
 		bool inPSRAM = true;
 		void infoSerBuf();
-		void fViewHistory();
-		void fregbuffer();
-		void fHistoryClear();
+		//void fViewHistory();
+		void fregbuffer(size_t amount);
+		//void fHistoryClear();
 		void fHistoryFlush();
 		void insHistory(const char* str);
 		void reverse(char* buf, size_t start, size_t end);
 		void unrollBuffer();
 		void parsinghistory(char *opzion);
-		void printBigBuf(char *bigbuf, size_t dim = -1);
+		void printBigBuf(char *bigbuf, size_t dim = 0);
 		// ===== TIMESTAMP =====
 		bool enableTimestamp = false;
 		void setTimestampEnabled(bool enable) { enableTimestamp = enable; }
@@ -143,45 +142,45 @@
 		AsyncEventSource* eventsserial;
 		
 		// Client SSE
-		std::vector<AsyncEventSourceClient*> activeClients;
-		SemaphoreHandle_t clientsMutex;
-		AsyncEventSourceClient* targetClient;
+		//std::vector<AsyncEventSourceClient*> activeClients;
+		//SemaphoreHandle_t clientsMutex;
+		//AsyncEventSourceClient* targetClient;
+		AsyncEventSourceClient* clientSSEGlobale;
 		
 		// Buffer PSRAM o SRAM
+		bool historyFileEnabled = true;
 		char* historySerBuf;
 		bool actSerBuf;
 		size_t pSerBuf;
-		//size_t pSerBufOld;
 		size_t dimSerBuf;
 		bool fullbuffer;
 		bool directFS;
-		//bool inPSRAM;
-		//File hfile;
+		char _timestamp[15];		// "[HH:MM:SS] " = 11 char max
+		char chunkBuf[CHUNK_SIZE];
 		
 		// Stato
 		char buffer_ser[LEN_BUF_SER];
-		char* comando;
-		char* param1;
+		char* command;
+		char* argument;
 		bool echon;
 		uint16_t fromin;
 		int statoTask;
 		
 		// buffer per write
-		#define DIMBUFFERIN 100
+		//#define DIMBUFFERIN 100
+		#define DIMBUFFERIN 600
 		char bufferIn[DIMBUFFERIN];
 		size_t bufIndexIn = 0;
 		unsigned long ultimoCarattereTime = 0;
-		const unsigned long TIMEOUT_MS = 50; // Tempo di attesa prima dell'invio forzato
+		const unsigned long TIMEOUT_MS = 40; // Tempo di attesa prima dell'invio forzato
 		
-		// Password executive
-		//char* pwd_executive;
 		
 		// Callback esterna
 		CallbackFunzione _callback; // Puntatore interno alla funzione esterna
 		CallbackBLE _callBLE;		// puntatore per output su ble o altro..
 		
 		// Utility
-		//void appbuf(const char* str, char* destBuf, size_t maxDim, size_t* pIndice);
+		
 	};
 	
 #endif
