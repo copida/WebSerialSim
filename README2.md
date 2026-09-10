@@ -2,7 +2,7 @@ WebSerialSIM (Serial Web SSE)
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-blue.svg)
-![Version](https://img.shields.io/badge/version-2.0.0-lightgrey.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-lightgrey.svg)
 
 Autore: Davide
 Licenza: MIT
