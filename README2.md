@@ -1,3 +1,12 @@
+
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Platform: ESP32](https://img.shields.io/badge/Platform-ESP32-blue.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-lightgrey.svg)
+
+Autore: Davide
+Licenza: MIT
+Versione: 1.0 (Serial Web SSE)
+
 # WebSerialSim
 
 **WebSerialSim** è una libreria leggera per ESP32 che permette di utilizzare un terminale seriale direttamente dal browser tramite **Server-Sent Events (SSE)**.
@@ -657,7 +666,9 @@ La libreria è pensata soprattutto per:
 
 # License
 
-Da definire.
+📜 Licenza
+Questo progetto è distribuito sotto licenza MIT.
+Puoi usarlo, modificarlo e condividerlo liberamente.
 
 ---
 
