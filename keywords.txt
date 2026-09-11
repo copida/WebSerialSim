@@ -1,10 +1,6 @@
-AsyncHTTPClientLight    KEYWORD1
-beginRequest    KEYWORD2
-addHeader   KEYWORD2
-poll    KEYWORD2
-setTimeout  KEYWORD2
-setDebug    KEYWORD2
-setLogToFile    KEYWORD2
-onRequestComplete   KEYWORD2
-onChunkReceived KEYWORD2
-onError KEYWORD2
+WebSerialSim    KEYWORD1
+setCallback    KEYWORD2
+setCallBLEk    KEYWORD2
+setbuffer   KEYWORD2
+setHistoryFile    KEYWORD2
+taskList  KEYWORD2
