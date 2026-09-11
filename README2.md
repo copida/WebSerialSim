@@ -211,6 +211,7 @@ Tempo totale misurato:
 
 ```text
 18.667 ms
+tempo: 16590 (NOFS)
 ```
 
 Velocità media:
