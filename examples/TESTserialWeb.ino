@@ -6,6 +6,8 @@ AsyncWebServer server(80);
 #include "WebSerialSim.h"
 WebSerialSim serialWeb;
 
+#define PIN_CS  10
+
 static uint32_t last = millis();
 static uint32_t count = 0;
 
@@ -58,7 +60,7 @@ void setup() {
     Serial.printf("[PSRAM] Rilevata. Memoria libera in PSRAM: %d bytes\n", ESP.getFreePsram());
   }
 
-  if (!SD.begin(46)) {
+  if (!SD.begin(PIN_CS)) {
     Serial.println("SD...FAIL");
   } else {
     Serial.println("SD...OK");
