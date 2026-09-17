@@ -202,6 +202,12 @@ const char serial_html[] PROGMEM = R"rawliteral(
 			
 			.btn-clear { border-color: #555; }
 			.btn-clear:hover { background-color: #444; }
+			.btn-cmd:disabled {
+			border-color: #555555;
+			color: #888888;
+			cursor: not-allowed;
+}
+
 		</style>
 	</head>
 	<body>
@@ -232,12 +238,16 @@ const char serial_html[] PROGMEM = R"rawliteral(
     <!-- Toolbar per la gestione rapida della HISTORY -->
     <div class="history-bar">
 			<span class="history-label">HISTORY:</span>
-			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY ON')">ON</button>
-			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY OFF')">OFF</button>
+<!-- RUN parte giÃ  disattivato dall'HTML -->
+<button id="btnRun" class="btn btn-cmd" disabled onclick="gestRunPausa('ON')">RUN</button>
+
+<!-- PAUSA parte attivo -->
+<button id="btnPausa" class="btn btn-cmd" onclick="gestRunPausa('OFF')">PAUSA</button>
+
+<!--			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY ON')">RUN</button>
+			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY OFF')">PAUSA</button> -->
 			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY INFO')">INFO</button>
-			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY FLUSH')" title="Scarica il buffer nel supporto FS">FLUSH SD</button>
-			
-			<!-- <button class="btn btn-cmd" onclick="window.open('/view-buffer', '_blank', 'noopener,noreferrer');">VIEW</button> -->
+			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY LOAD')" title="Carica il buffer">LOAD Buf.</button>
 			<button class="btn btn-cmd" onclick="openBuffer('view')">VIEW</button>
 			<button class="btn btn-cmd" onclick="openBuffer('down')">DOWNLOAD</button>
 			<button class="btn btn-cmd" onclick="delhistory()">DEL</button>
@@ -250,14 +260,6 @@ const char serial_html[] PROGMEM = R"rawliteral(
 			
 			
 		</div>
-		
-    <!-- Filter Bar per REGEX 
-			<div class="filter-bar">
-			<span class="filter-label">FILTER:</span>
-			<input type="text" id="filterInput" placeholder="Regex (es: ERROR|WARN)" autocomplete="off">
-			<span class="filter-count" id="filter-count"></span>
-			<button class="btn btn-clear" onclick="clearFilter()">Reset</button>
-		</div> -->
 		
     <!-- Barra Input Comandi -->
     <div class="input-bar">
@@ -341,9 +343,15 @@ const char serial_html[] PROGMEM = R"rawliteral(
 					terminal.appendChild(fragment);
 					
 					// Manutenzione DOM (limite 2000 righe per fluiditÃ  del browser)
-					while (terminal.children.length > 10000) {
-            terminal.removeChild(terminal.firstChild);
-					}
+while (terminal.children.length > 10000) {
+    // Seleziona i primi 50 elementi e li rimuove tutti in una volta
+    const toRemove = Array.from(terminal.children).slice(0, 50);
+    toRemove.forEach(child => child.remove());
+}
+
+//					while (terminal.children.length > 30000) {
+//            terminal.removeChild(terminal.firstChild);
+//					}
 					
 					updateFilterCount();
 					requestScrollToBottom();
@@ -476,6 +484,29 @@ const char serial_html[] PROGMEM = R"rawliteral(
 				function sendDirectCommand(cmdString) {
 					executePost(cmdString);
 				}
+
+function gestRunPausa(tipo) {
+    let btnRun = document.getElementById("btnRun");
+    let btnPausa = document.getElementById("btnPausa");
+
+    if (tipo === 'ON') {
+        // 1. Invia il tuo comando originale (cambia 'HISTORY ON' se necessario)
+        executePost('HISTORY ON'); 
+        
+        // 2. Cambia lo stato dei pulsanti (il CSS cambierÃ  il colore di conseguenza)
+        btnRun.disabled = true;
+        btnPausa.disabled = false;
+    } 
+    else if (tipo === 'OFF') {
+        // 1. Invia il comando di pausa
+        executePost('HISTORY OFF'); 
+        
+        // 2. Cambia lo stato dei pulsanti
+        btnRun.disabled = false;
+        btnPausa.disabled = true;
+    }
+}
+
 				
 				function delhistory() {					
 					if (window.confirm("Cancello history....?")) {
