@@ -3,50 +3,44 @@
 	
 	#include <Arduino.h>
 	#include <ESPAsyncWebServer.h>
-	#include <vector>
-	#include <algorithm>
+	//#include <vector>
+	//#include <algorithm>
 	#include <esp_psram.h>
-	#include "htmlserialSim.h"
+	#include "htmlserialSim.h"			// paguna HTML
 	
-	#define HISTORY_FS 1
-	#define MAXSIZEFILE_HISTORY 512000
-	// se MAXSIZEBUFFER_HISTORY 0 allora la scrittura è diretta senza buffer (più lento)
+	
 	#define MAXSIZEBUFFER_HISTORY 4000
-	//#define MAXSIZEBUFFER_HISTORY 0
-	#define BUFFER_PSRAM
 	#define CHUNK_SIZE 1440 // Ottimizzato sotto la soglia MTU standard (1460)
 	
-	#if HISTORY_FS
-		
-		#define FILE_HISTORY "/history.txt"
-		
-		#define HISTORY_SD
-		//#define HISTORY_SDMMC
-		//#define HISTORY_LittleFS
-		
-		#ifdef HISTORY_SD
-			#include <SD.h>
-			#define FS_STORY SD
-			#define _TYPE_FS "SD"
-			#pragma message "### Serial WEB SIM History su 'SD' ###"
-		#endif
-		
-		#ifdef HISTORY_SDMMC
-			#include <SD_MMC.h>
-			#define FS_STORY SD_MMC
-			#define _TYPE_FS "SD_MMC"
-			#pragma message "### Serial WEB SIM History su 'SD MMC' ###"
-		#endif
-		
-		#ifdef HISTORY_LittleFS
-			#include <FS.h>
-			#include <LittleFS.h>
-			#define FS_STORY LittleFS
-			#define _TYPE_FS "LittleFS"
-			#pragma message "### Serial WEB SIM History su 'LittleFS' ###"
-		#endif
-		
+	#define FILE_HISTORY "/history.txt"
+	#define MAXSIZEFILE_HISTORY 512000
+	
+	#define HISTORY_SD
+	//#define HISTORY_SDMMC
+	//#define HISTORY_LittleFS
+	
+	#ifdef HISTORY_SD
+		#include <SD.h>
+		#define FS_STORY SD
+		#define _TYPE_FS "SD"
+		#pragma message "### Serial WEB SIM History su 'SD' ###"
 	#endif
+	
+	#ifdef HISTORY_SDMMC
+		#include <SD_MMC.h>
+		#define FS_STORY SD_MMC
+		#define _TYPE_FS "SD_MMC"
+		#pragma message "### Serial WEB SIM History su 'SD MMC' ###"
+	#endif
+	
+	#ifdef HISTORY_LittleFS
+		#include <FS.h>
+		#include <LittleFS.h>
+		#define FS_STORY LittleFS
+		#define _TYPE_FS "LittleFS"
+		#pragma message "### Serial WEB SIM History su 'LittleFS' ###"
+	#endif
+	
 	
 	using CallbackFunzione = void (*)(char*);
 	using CallbackBLE = void (*)(char*);
@@ -88,20 +82,24 @@
 		// =========================================================================
 		
 		void printfWeb(const char* format, ...);
-		void printWeb(char* _datiprint);
+		// NUOVA: Versione per stringhe racchiuse nella macro F()
+		//void printfWeb(const  __FlashStringHelper* format, ...);
+		
+		
+		void printWeb(char* _datiprint, size_t quantsize = 0);
 		void sendWeb(char* _dati, size_t len);
 		
 		// HISTORY RAM
 		void modestory(bool action);
-		bool attivaBufferPSRAM();
+		void setPSRAM(bool _enable);
+		bool makeBuffer();
 		void setbuffer(size_t _dimbuffer);
 		void setHistoryFile(bool enable);
 		bool inPSRAM = true;
 		void infoSerBuf();
-		//void fViewHistory();
-		void fregbuffer(size_t amount);
-		//void fHistoryClear();
+		void fregbuffer();
 		void fHistoryFlush();
+		void fHistoryLoad();
 		void insHistory(const char* str);
 		void reverse(char* buf, size_t start, size_t end);
 		void unrollBuffer();
@@ -113,6 +111,7 @@
 		char* getTimestampString();
 		
 		// SSE
+		
 		bool checkClientSSE();
 		bool canSendSSE(size_t requiredSpace);
 		
@@ -150,9 +149,11 @@
 		// Buffer PSRAM o SRAM
 		bool historyFileEnabled = true;
 		char* historySerBuf;
-		bool actSerBuf;
+		bool stateRun;
 		size_t pSerBuf;
+		size_t tailBuf;
 		size_t dimSerBuf;
+		size_t tmpdimSerBuf;
 		bool fullbuffer;
 		bool directFS;
 		char _timestamp[15];		// "[HH:MM:SS] " = 11 char max
@@ -178,8 +179,6 @@
 		// Callback esterna
 		CallbackFunzione _callback; // Puntatore interno alla funzione esterna
 		CallbackBLE _callBLE;		// puntatore per output su ble o altro..
-		
-		// Utility
 		
 	};
 	
