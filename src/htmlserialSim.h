@@ -89,7 +89,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
 			}
 			
 			/* Scrollbar Custom */
-			#serial-terminal::-webkit-scrollbar { width: 8px; }
+			#serial-terminal::-webkit-scrollbar { width: 12px; }
 			#serial-terminal::-webkit-scrollbar-track { background: #0a0a0a; }
 			#serial-terminal::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 			#serial-terminal::-webkit-scrollbar-thumb:hover { background: #555; }
@@ -206,8 +206,8 @@ const char serial_html[] PROGMEM = R"rawliteral(
 			border-color: #555555;
 			color: #888888;
 			cursor: not-allowed;
-}
-
+			}
+			
 		</style>
 	</head>
 	<body>
@@ -230,6 +230,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
 					<input type="checkbox" id="timestamp-check" onchange="toggleTimestamp(this.checked)">
 					Timestamp
 				</label>
+				<button  class="btn btn-cmd" id="btnModifica">...</button>
 			</div>
 		</div>
 		
@@ -238,13 +239,13 @@ const char serial_html[] PROGMEM = R"rawliteral(
     <!-- Toolbar per la gestione rapida della HISTORY -->
     <div class="history-bar">
 			<span class="history-label">HISTORY:</span>
-<!-- RUN parte giÃ  disattivato dall'HTML -->
-<button id="btnRun" class="btn btn-cmd" disabled onclick="gestRunPausa('ON')">RUN</button>
-
-<!-- PAUSA parte attivo -->
-<button id="btnPausa" class="btn btn-cmd" onclick="gestRunPausa('OFF')">PAUSA</button>
-
-<!--			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY ON')">RUN</button>
+			<!-- RUN parte giÃ  disattivato dall'HTML -->
+			<button id="btnRun" class="btn btn-cmd" disabled onclick="gestRunPausa('ON')">RUN</button>
+			
+			<!-- PAUSA parte attivo -->
+			<button id="btnPausa" class="btn btn-cmd" onclick="gestRunPausa('OFF')">PAUSA</button>
+			
+			<!--			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY ON')">RUN</button>
 			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY OFF')">PAUSA</button> -->
 			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY INFO')">INFO</button>
 			<button class="btn btn-cmd" onclick="sendDirectCommand('HISTORY LOAD')" title="Carica il buffer">LOAD Buf.</button>
@@ -257,6 +258,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
 			<input type="text" id="filterInput" placeholder="Regex (es: ERROR|WARN)" autocomplete="off">
 			<span class="filter-count" id="filter-count"></span>
 			<button class="btn btn-clear" onclick="clearFilter()">Reset</button>
+			<button class="btn btn-clear" id="exportBtn" onclick="exportFilteredLines()">Export</button>
 			
 			
 		</div>
@@ -269,6 +271,7 @@ const char serial_html[] PROGMEM = R"rawliteral(
 		</div>
 		
 		<script>
+			
 			if (!!window.EventSource) {
 				const source = new EventSource('/events/serial');
 				const terminal = document.getElementById('serial-terminal');
@@ -280,6 +283,18 @@ const char serial_html[] PROGMEM = R"rawliteral(
 				let showTimestamp = false;
 				let lastTimestamp = "";
 				let currentFilterRegex = null;
+				let maxNumRow = 30000;
+				const MIN = 100;           // Limite minimo del range
+				const MAX = 30000;         // Limite massimo del range
+				const bottone = document.getElementById('btnModifica');
+				
+				// Funzione prompt per modificare numero rughe
+				bottone.addEventListener('click', () => {
+					let nuovoValore = prompt("Numero righe: (da 100 a 30000)", maxNumRow);
+					if (nuovoValore !== null && !isNaN(nuovoValore) && nuovoValore >= MIN && nuovoValore <= MAX) {
+						maxNumRow = Number(nuovoValore);
+					}
+				});
 				
 				function openBuffer(action) {
 					window.open('/buffer?action=' + action, '_blank', 'noopener,noreferrer');
@@ -343,15 +358,28 @@ const char serial_html[] PROGMEM = R"rawliteral(
 					terminal.appendChild(fragment);
 					
 					// Manutenzione DOM (limite 2000 righe per fluiditÃ  del browser)
-while (terminal.children.length > 10000) {
-    // Seleziona i primi 50 elementi e li rimuove tutti in una volta
-    const toRemove = Array.from(terminal.children).slice(0, 50);
-    toRemove.forEach(child => child.remove());
-}
-
-//					while (terminal.children.length > 30000) {
-//            terminal.removeChild(terminal.firstChild);
-//					}
+					//if (terminal.children.length > 20000) {
+					if (terminal.children.length > maxNumRow) {
+						for (let i = 0; i < 50; i++) {
+							if (terminal.firstElementChild) {
+								terminal.firstElementChild.remove();
+								} else {
+								break;
+							}
+						}
+					}
+					
+					
+					// Manutenzione DOM (limite 2000 righe per fluiditÃ  del browser)
+					//	while (terminal.children.length > 20000) {
+					// Seleziona i primi 50 elementi e li rimuove tutti in una volta
+					//	const toRemove = Array.from(terminal.children).slice(0, 50);
+					//	toRemove.forEach(child => child.remove());
+					//	}
+					
+					//					while (terminal.children.length > 30000) {
+					//            terminal.removeChild(terminal.firstChild);
+					//					}
 					
 					updateFilterCount();
 					requestScrollToBottom();
@@ -391,17 +419,17 @@ while (terminal.children.length > 10000) {
 					const pattern = filterInput.value.trim();
 					
 					if (!pattern) {
-            clearFilter();
-            return;
+						clearFilter();
+						return;
 					}
 					
 					try {
-            currentFilterRegex = new RegExp(pattern, 'i'); // 'i' = case-insensitive
-            filterInput.style.borderColor = '#33ff33'; // Verde se valida
+						currentFilterRegex = new RegExp(pattern, 'i'); // 'i' = case-insensitive
+						filterInput.style.borderColor = '#33ff33'; // Verde se valida
 						} catch (e) {
-            console.error("Regex non valida:", e);
-            filterInput.style.borderColor = '#ff6666'; // Rosso se invalida
-            return;
+						console.error("Regex non valida:", e);
+						filterInput.style.borderColor = '#ff6666'; // Rosso se invalida
+						return;
 					}
 					
 					updateFilterDisplay();
@@ -411,7 +439,7 @@ while (terminal.children.length > 10000) {
 					const lines = document.querySelectorAll('.log-line');
 					
 					lines.forEach(line => {
-            if (currentFilterRegex && currentFilterRegex.test(line.textContent)) {
+						if (currentFilterRegex && currentFilterRegex.test(line.textContent)) {
 							line.classList.remove('hidden');
 							line.classList.add('match');
 							} else if (currentFilterRegex) {
@@ -427,8 +455,8 @@ while (terminal.children.length > 10000) {
 				
 				function updateFilterCount() {
 					if (!currentFilterRegex) {
-            filterCountSpan.textContent = "";
-            return;
+						filterCountSpan.textContent = "";
+						return;
 					}
 					
 					const matchCount = document.querySelectorAll('.log-line.match').length;
@@ -445,22 +473,100 @@ while (terminal.children.length > 10000) {
 					
 					const lines = document.querySelectorAll('.log-line');
 					lines.forEach(line => {
-            line.classList.remove('hidden', 'match');
+						line.classList.remove('hidden', 'match');
 					});
+				}
+				
+				// --- EXPORT RIGHE FILTRATE
+				function exportFilteredLines() {
+					// Seleziona solo le righe che NON sono nascoste dal filtro (oppure che hanno la classe 'match' se c'Ã¨ un filtro attivo)
+					// Se non c'Ã¨ filtro attivo (currentFilterRegex Ã¨ null), prende tutte le righe.
+					let linesToExport = [];
+					
+					if (currentFilterRegex) {
+						// Se c'Ã¨ un filtro attivo, prendiamo solo quelle con classe .match (o non nascoste)
+						const visibleLines = document.querySelectorAll('.log-line.match');
+						visibleLines.forEach(line => linesToExport.push(line.textContent));
+						}	else {
+						// Se non c'Ã¨ alcun filtro attivo, prendiamo tutte le righe
+						const allLines = document.querySelectorAll('.log-line');
+						allLines.forEach(line => linesToExport.push(line.textContent));
+					}
+					
+					if (linesToExport.length === 0) {
+						alert("Nessuna riga da esportare!");
+						return;
+					}
+					
+					// Uniamo tutte le righe estratte in un unico testo separato da a capo
+					const textContent = linesToExport.join('\n');
+					
+					// Apriamo una nuova scheda/finestra del browser
+					const newWindow = window.open('', '_blank');
+					
+					if (newWindow) {
+						newWindow.document.write(`
+						<!DOCTYPE html>
+						<html lang="it">
+						<head>
+						<meta charset="UTF-8">
+						<title>Righe Filtrate Esportate</title>
+						<style>
+						body {
+						background-color: #1e1e1e;
+						color: #d4d4d4;
+						font-family: monospace;
+						padding: 15px;
+						white-space: pre-wrap;
+						word-wrap: break-word;
+						}
+						</style>
+						</head>
+						<body>${escapeHtml(textContent)}</body>
+						</html>
+						`);
+						newWindow.document.close();
+						} else {
+						alert("Impossibile aprire una nuova finestra. Controlla che il browser non stia bloccando i popup.");
+					}
+				}
+				
+				function escapeHtml(text) {
+					return text
+					.replace(/&/g, "&amp;")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;")
+					.replace(/"/g, "&quot;")
+					.replace(/'/g, "&#039;");
 				}
 				
 				// --- UTILITIES E INVIO COMANDI ---
-				
 				function requestScrollToBottom() {
 					if (!autoscrollCheck || !autoscrollCheck.checked) return;
 					if (scrollInAttesa) return;
-					
 					scrollInAttesa = true;
 					requestAnimationFrame(function() {
-            terminal.scrollTop = terminal.scrollHeight;
-            scrollInAttesa = false;
+						terminal.scrollTop = terminal.scrollHeight;
+						scrollInAttesa = false;
 					});
 				}
+				
+				
+				//function requestScrollToBottom() {
+				//	if (!autoscrollCheck || !autoscrollCheck.checked) return;
+				//	if (scrollInAttesa) return;
+				//	
+				//	scrollInAttesa = true;
+				//	requestAnimationFrame(function() {
+				// Questo dice al browser di andare in fondo senza calcolare forzatamente il layout CSS
+				//		terminal.scrollTo({
+				//top: terminal.scrollHeight,
+				//			behavior: 'instant' 
+				//		});
+				//		scrollInAttesa = false;
+				//	});
+				//}
+				
 				
 				function clearMonitor() {
 					if (terminal) terminal.innerHTML = "";
@@ -484,29 +590,29 @@ while (terminal.children.length > 10000) {
 				function sendDirectCommand(cmdString) {
 					executePost(cmdString);
 				}
-
-function gestRunPausa(tipo) {
-    let btnRun = document.getElementById("btnRun");
-    let btnPausa = document.getElementById("btnPausa");
-
-    if (tipo === 'ON') {
-        // 1. Invia il tuo comando originale (cambia 'HISTORY ON' se necessario)
-        executePost('HISTORY ON'); 
-        
-        // 2. Cambia lo stato dei pulsanti (il CSS cambierÃ  il colore di conseguenza)
-        btnRun.disabled = true;
-        btnPausa.disabled = false;
-    } 
-    else if (tipo === 'OFF') {
-        // 1. Invia il comando di pausa
-        executePost('HISTORY OFF'); 
-        
-        // 2. Cambia lo stato dei pulsanti
-        btnRun.disabled = false;
-        btnPausa.disabled = true;
-    }
-}
-
+				
+				function gestRunPausa(tipo) {
+					let btnRun = document.getElementById("btnRun");
+					let btnPausa = document.getElementById("btnPausa");
+					
+					if (tipo === 'ON') {
+						// 1. Invia il tuo comando originale (cambia 'HISTORY ON' se necessario)
+						executePost('HISTORY ON'); 
+						
+						// 2. Cambia lo stato dei pulsanti (il CSS cambierÃ  il colore di conseguenza)
+						btnRun.disabled = true;
+						btnPausa.disabled = false;
+					} 
+					else if (tipo === 'OFF') {
+						// 1. Invia il comando di pausa
+						executePost('HISTORY OFF'); 
+						
+						// 2. Cambia lo stato dei pulsanti
+						btnRun.disabled = false;
+						btnPausa.disabled = true;
+					}
+				}
+				
 				
 				function delhistory() {					
 					if (window.confirm("Cancello history....?")) {
@@ -524,33 +630,28 @@ function gestRunPausa(tipo) {
 					const payload = commandText;
 					
 					fetch('/parsingCmd', {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: payload
+						method: 'POST',
+						headers: { 'Content-Type': 'text/plain' },
+						body: payload
 						}).catch(error => {
-            console.error('Errore invio comando:', error);
+						console.error('Errore invio comando:', error);
 					});
 				}
 				
 				// Event listeners
 				document.getElementById('commandInput')?.addEventListener('keydown', function(event) {
 					if (event.key === 'Enter') {
-            event.preventDefault();
-            sendCommand();
+						event.preventDefault();
+						sendCommand();
 					}
 				});
 				
-				let filterTimer = null;
-				document.getElementById('filterInput').addEventListener('input', () => {
-					clearTimeout(filterTimer);
-					filterTimer = setTimeout(applyFilter, 200);
-				});
 				
 				document.getElementById('filterInput')?.addEventListener('input', applyFilter);
 				document.getElementById('filterInput')?.addEventListener('keydown', function(event) {
 					if (event.key === 'Enter') {
-            event.preventDefault();
-            applyFilter();
+						event.preventDefault();
+						applyFilter();
 					}
 				});
 				
