@@ -3,10 +3,18 @@
 	
 	#include <Arduino.h>
 	#include <ESPAsyncWebServer.h>
-	//#include <vector>
-	//#include <algorithm>
-	#include <esp_psram.h>
+	
+	#define INTERNALHTML
+	#define PSRAM
+	
+	#ifdef INTERNALHTML
+	#define GZIP
+	#ifdef GZIP
+	#include "htmlfile.h"			// pagina HTML GZIP
+	#else
 	#include "htmlserialSim.h"			// paguna HTML
+	#endif
+	#endif
 	
 	
 	#define MAXSIZEBUFFER_HISTORY 4000
@@ -18,27 +26,49 @@
 	#define HISTORY_SD
 	//#define HISTORY_SDMMC
 	//#define HISTORY_LittleFS
+	//#define HISTORY_sdFAT
 	
 	#ifdef HISTORY_SD
 		#include <SD.h>
-		#define FS_STORY SD
+		#define FS_DRV SD
+		typedef File FS_FILE_TYPE;
 		#define _TYPE_FS "SD"
+		#define MOD_APPEND FILE_APPEND
+		#define MOD_READ FILE_READ
 		#pragma message "### Serial WEB SIM History su 'SD' ###"
 	#endif
 	
 	#ifdef HISTORY_SDMMC
 		#include <SD_MMC.h>
-		#define FS_STORY SD_MMC
+		#define FS_DRV SD_MMC
+		typedef File FS_FILE_TYPE;
 		#define _TYPE_FS "SD_MMC"
+		#define MOD_APPEND FILE_APPEND
+		#define MOD_READ FILE_READ
 		#pragma message "### Serial WEB SIM History su 'SD MMC' ###"
 	#endif
 	
 	#ifdef HISTORY_LittleFS
 		#include <FS.h>
 		#include <LittleFS.h>
-		#define FS_STORY LittleFS
+		#define FS_DRV LittleFS
+		typedef File FS_FILE_TYPE;
 		#define _TYPE_FS "LittleFS"
+		#define MOD_APPEND FILE_APPEND
+		#define MOD_READ FILE_READ
 		#pragma message "### Serial WEB SIM History su 'LittleFS' ###"
+	#endif
+	
+	#ifdef HISTORY_sdFAT
+		#include <SPI.h>
+		#include <SdFat.h>
+		extern SdFat sd; // Dichiarata nel file .ino o .cpp principale
+		#define FS_DRV sd
+		typedef FsFile FS_FILE_TYPE;
+		#define _TYPE_FS "sd"
+		#define MOD_APPEND (O_WRITE | O_CREAT | O_APPEND)
+		#define MOD_READ O_READ
+		#pragma message "### Serial WEB SIM History su 'SdFat' ###"
 	#endif
 	
 	
@@ -90,17 +120,18 @@
 		void sendWeb(char* _dati, size_t len);
 		
 		// HISTORY RAM
-		void modestory(bool action);
+		void playstory(bool action);
 		void setPSRAM(bool _enable);
 		bool makeBuffer();
 		void setbuffer(size_t _dimbuffer);
 		void setHistoryFile(bool enable);
+		void setTimestamp(bool enable);
 		bool inPSRAM = true;
 		void infoSerBuf();
 		void fregbuffer();
 		void fHistoryFlush();
 		void fHistoryLoad();
-		void insHistory(const char* str);
+		void insBuffer(const char* str);
 		void reverse(char* buf, size_t start, size_t end);
 		void unrollBuffer();
 		void parsinghistory(char *opzion);
@@ -112,8 +143,10 @@
 		
 		// SSE
 		
-		bool checkClientSSE();
-		bool canSendSSE(size_t requiredSpace);
+		//bool checkClientSSE();
+		//bool canSendSSE(size_t requiredSpace);
+		bool txSSE(char* _datiprint, size_t requiredSpace, bool txtimestamp = false);
+		uint16_t _nerrTX;
 		
 		// Task
 		void taskList();
@@ -128,8 +161,6 @@
 		
 		void begin(AsyncWebServer* mainServer);
 		
-		// Metodo per registrare la funzione esterna
-		// Funzione per impostare il puntatore alla funzione dello sketch
     void setCallback(CallbackFunzione cb);
 		void setCallBLE(CallbackBLE cb);
 		
@@ -145,6 +176,8 @@
 		//SemaphoreHandle_t clientsMutex;
 		//AsyncEventSourceClient* targetClient;
 		AsyncEventSourceClient* clientSSEGlobale;
+		AsyncClient* rawClient;
+		
 		
 		// Buffer PSRAM o SRAM
 		bool historyFileEnabled = true;
@@ -166,6 +199,7 @@
 		bool echon;
 		uint16_t fromin;
 		int statoTask;
+		//int max_mtu;
 		
 		// buffer per write
 		//#define DIMBUFFERIN 100
@@ -176,9 +210,9 @@
 		const unsigned long TIMEOUT_MS = 40; // Tempo di attesa prima dell'invio forzato
 		
 		
-		// Callback esterna
-		CallbackFunzione _callback; // Puntatore interno alla funzione esterna
-		CallbackBLE _callBLE;		// puntatore per output su ble o altro..
+		// Callback esterna (puntatori)
+		CallbackFunzione _callback;
+		CallbackBLE _callBLE;
 		
 	};
 	
