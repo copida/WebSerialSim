@@ -111,42 +111,22 @@
 		using Print::write;
 		// =========================================================================
 		
-		void printfWeb(const char* format, ...);
-		// NUOVA: Versione per stringhe racchiuse nella macro F()
-		//void printfWeb(const  __FlashStringHelper* format, ...);
 		
-		
-		void printWeb(char* _datiprint, size_t quantsize = 0);
-		void sendWeb(char* _dati, size_t len);
-		
-		// HISTORY RAM
+	
 		void playstory(bool action);
 		void setPSRAM(bool _enable);
-		bool makeBuffer();
+		
 		void setbuffer(size_t _dimbuffer);
 		void setHistoryFile(bool enable);
 		void setTimestamp(bool enable);
 		bool inPSRAM = true;
 		void infoSerBuf();
-		void fregbuffer();
-		void fHistoryFlush();
-		void fHistoryLoad();
-		void insBuffer(const char* str);
-		void reverse(char* buf, size_t start, size_t end);
-		void unrollBuffer();
-		void parsinghistory(char *opzion);
-		void printBigBuf(char *bigbuf, size_t dim = 0);
+		
 		// ===== TIMESTAMP =====
 		bool enableTimestamp = false;
 		void setTimestampEnabled(bool enable) { enableTimestamp = enable; }
-		char* getTimestampString();
-		
-		// SSE
-		
-		//bool checkClientSSE();
-		//bool canSendSSE(size_t requiredSpace);
-		bool txSSE(char* _datiprint, size_t requiredSpace, bool txtimestamp = false);
-		uint16_t _nerrTX;
+		void getTimestampString();
+	
 		
 		// Task
 		void taskList();
@@ -164,7 +144,7 @@
     void setCallback(CallbackFunzione cb);
 		void setCallBLE(CallbackBLE cb);
 		
-		
+// PRIVATE =========================================================================
 		private:
 		
 		// Server interno
@@ -178,7 +158,32 @@
 		AsyncEventSourceClient* clientSSEGlobale;
 		AsyncClient* rawClient;
 		
+		// SSE
 		
+		//bool checkClientSSE();
+		//bool canSendSSE(size_t requiredSpace);
+		bool txSSE(char* _datiprint, size_t requiredSpace, bool txtimestamp = false);
+		uint16_t _nerrTX;
+		
+		void fregbuffer();
+		void fHistoryFlush();
+		void fHistoryLoad();
+		void insBuffer(const char* str);
+		void reverse(char* buf, size_t start, size_t end);
+		void unrollBuffer();
+		void parsinghistory(char *opzion);
+		void printWeb(char *bigbuf, size_t dim = 0);
+		
+		void printfWeb(const char* format, ...);
+		// NUOVA: Versione per stringhe racchiuse nella macro F()
+		//void printfWeb(const  __FlashStringHelper* format, ...);
+		
+		
+		//void printWeb(char* _datiprint, size_t quantsize = 0);
+		void sendWeb(char* _dati, size_t len);
+		
+		
+		bool makeBuffer();
 		// Buffer PSRAM o SRAM
 		bool historyFileEnabled = true;
 		char* historySerBuf;
@@ -189,7 +194,7 @@
 		size_t tmpdimSerBuf;
 		bool fullbuffer;
 		bool directFS;
-		char _timestamp[15];		// "[HH:MM:SS] " = 11 char max
+		char _timestamp[15] = {"[00:00:00] "};		// "[HH:MM:SS] " = 11 char max
 		char chunkBuf[CHUNK_SIZE];
 		
 		// Stato
@@ -209,11 +214,9 @@
 		unsigned long ultimoCarattereTime = 0;
 		const unsigned long TIMEOUT_MS = 40; // Tempo di attesa prima dell'invio forzato
 		
-		
 		// Callback esterna (puntatori)
 		CallbackFunzione _callback;
 		CallbackBLE _callBLE;
-		
 	};
 	
 #endif
