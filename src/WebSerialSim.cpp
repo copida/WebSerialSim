@@ -61,30 +61,32 @@ void WebSerialSim::handleBufferIn() {
 	}
 }
 
-void WebSerialSim::printWeb(char* _datiprint, size_t quantsize) {
+/* void WebSerialSim::printWeb(char* _datiprint, size_t quantsize) {
 	if (quantsize == 0) quantsize = strlen(_datiprint);
 	if (quantsize > CHUNK_SIZE) {
 		printBigBuf(_datiprint, quantsize);
     } else {
 		sendWeb(_datiprint, quantsize);
 	}
-}
+} */
 
 void WebSerialSim::sendWeb(char* _dati, size_t len) {
 	
 	if (enableTimestamp) getTimestampString();
-	// 1. Echo su Serial (se abilitato)
-	if (fromin == FROMSER || echon) {
-		if (enableTimestamp) Serial.print(_timestamp);
-		Serial.write(_dati, len);
-	}
 	
-	if (fromin == FROMWEB && clientSSEGlobale) {
+//	if (fromin == FROMWEB && clientSSEGlobale) {
+	if (clientSSEGlobale) {
 		if (enableTimestamp) {			
 			txSSE(_timestamp, 11, true);
 		}
 		//txSSE((const char*)_dati, len);
 		if(!txSSE(_dati, len, false)) Serial.write(_dati, len);
+	}
+	
+	// 1. Echo su Serial (se abilitato)
+	if (fromin == FROMSER || echon) {
+		if (enableTimestamp) Serial.print(_timestamp);
+		Serial.write(_dati, len);
 	}
 	
 	
@@ -103,11 +105,11 @@ void WebSerialSim::sendWeb(char* _dati, size_t len) {
 }
 
 // ===== TIMESTAMP HELPER =====
-char* WebSerialSim::getTimestampString() {
+void WebSerialSim::getTimestampString() {
 	//static char timestamp[16];  // "[HH:MM:SS] " = 11 char max
 	
 	if (!enableTimestamp) {
-		return (char*)"";  // Ritorna stringa vuota se disabilitato
+		return;
 	}
 	
 	time_t now = time(nullptr);
@@ -119,7 +121,7 @@ char* WebSerialSim::getTimestampString() {
 		timeinfo->tm_min,
 	timeinfo->tm_sec);
 	
-	return _timestamp;
+	return;
 } 
 
 //======================
@@ -135,20 +137,22 @@ size_t WebSerialSim::write(uint8_t m) {
 
 size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 	if (size == 0 || buffer == nullptr) return 0;
-	
+		
 	// Se il blocco in arrivo non sta nel buffer rimasto, svuota prima il buffer attuale
-	if (size + bufIndexIn >= DIMBUFFERIN - 1 && bufIndexIn != 0) {
-		bufferIn[bufIndexIn] = '\0';
-		//bufIndexIn = 0;
-		printWeb(bufferIn, bufIndexIn);
-		bufIndexIn = 0;
+	if (size + bufIndexIn >= DIMBUFFERIN - 1) {
+		if(bufIndexIn > 0){
+			printWeb(bufferIn, bufIndexIn);
+			bufIndexIn = 0;
+		}
 	}
 	
 	// Se il blocco singolo è più grande dell'intero buffer vuoto, bypassa l'accumulo
 	if (size >= DIMBUFFERIN - 1) {
-		printBigBuf((char*)buffer, size);
+		printWeb((char*)buffer, size);
 		return size;
 	}
+	
+	
 	
 	memcpy(&bufferIn[bufIndexIn], buffer, size);
 	bufIndexIn += size;
@@ -198,7 +202,7 @@ void WebSerialSim::switchState(int fasestate){
 }
 
 // ver NEW ===========================
-void WebSerialSim::printBigBuf(char *bigbuf, size_t dim) {
+void WebSerialSim::printWeb(char *bigbuf, size_t dim) {
 	if (bigbuf == NULL) return;
 	if (dim == 0) dim = strlen(bigbuf);
 	if (dim == 0) return;
@@ -233,13 +237,6 @@ void WebSerialSim::printBigBuf(char *bigbuf, size_t dim) {
 	}
 	// end while
 }
-
-// ======================
-// SSE
-// ======================
-// bool WebSerialSim::checkClientSSE() {
-// return (eventsserial->count() > 0);
-// }
 
 bool WebSerialSim::txSSE(char* _datiprint, size_t requiredSpace, bool txtimestamp) {
 	#define timeoutbuffer 2000
@@ -337,8 +334,12 @@ bool WebSerialSim::inputEXT(char* inExt, int lenb) {
 	
 	if (statoTask != IDLE)
 	return false;
-	if(lenb > LEN_BUF_SER) lenb = LEN_BUF_SER;
+	if (lenb >= LEN_BUF_SER)
+	lenb = LEN_BUF_SER - 1;
+	
 	memcpy(buffer_ser, inExt, lenb);
+	buffer_ser[lenb] = '\0';
+	
 	statoTask = PARSING;
 	fromin = FROMBT;
 	
@@ -444,11 +445,11 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 	
 	server = mainServer;
 	
-#ifndef INTERNALHTML
-	//per permettere collegamento esterno
-	DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-#endif
-		
+	#ifndef INTERNALHTML
+		//per permettere collegamento esterno
+		DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+	#endif
+	
 	// Inizializziamo l'Event Source (SSE)
 	eventsserial = new AsyncEventSource("/events/serial");
 	
@@ -464,23 +465,23 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 	});
 	
 	#ifdef INTERNALHTML
-	// Pagina HTML	
-	#ifdef GZIP
-		server->on("/serial", HTTP_GET, [](AsyncWebServerRequest *request){
-			AsyncWebServerResponse *response = request->beginResponse_P(
-				200, 
-				"text/html", 
-				(const uint8_t*) html_gz, 
-				html_gz_len
-			);
-			response->addHeader("Content-Encoding", "gzip");
-			request->send(response);
-		});
-		#else
-		server->on("/serial", HTTP_GET, [&](AsyncWebServerRequest* request) {
-			request->send_P(200, "text/html", serial_html);
-		});
-	#endif
+		// Pagina HTML	
+		#ifdef GZIP
+			server->on("/serial", HTTP_GET, [](AsyncWebServerRequest *request){
+				AsyncWebServerResponse *response = request->beginResponse_P(
+					200, 
+					"text/html", 
+					(const uint8_t*) html_gz, 
+					html_gz_len
+				);
+				response->addHeader("Content-Encoding", "gzip");
+				request->send(response);
+			});
+			#else
+			server->on("/serial", HTTP_GET, [&](AsyncWebServerRequest* request) {
+				request->send_P(200, "text/html", serial_html);
+			});
+		#endif
 	#endif
 	
 	// =====  VIEW E DOWNLOAD
@@ -591,11 +592,16 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 		nullptr,
 		[&](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
 			
-			if (len > LEN_BUF_SER - 1) {
+			// if (len > LEN_BUF_SER - 1) {
+			// request->send(400, "text/plain", "Payload too large");
+			// return;
+			// }
+			
+			//if (index + len > LEN_BUF_SER - 1)
+			if (total >= LEN_BUF_SER || index + len > LEN_BUF_SER - 1) {
 				request->send(400, "text/plain", "Payload too large");
 				return;
 			}
-			
 			
 			memcpy(buffer_ser + index, data, len);
 			
@@ -603,7 +609,6 @@ void WebSerialSim::begin(AsyncWebServer* mainServer) {
 				buffer_ser[total] = '\0';
 				fromin = FROMWEB;
 				statoTask = PARSING;
-				//request->send(200, "text/plain", "OK");
 			}
 			
 			request->send(200, "text/plain", "OK");
@@ -747,12 +752,12 @@ void WebSerialSim::parsinghistory(char *opzion) {
 		} else if (strstr(opzion, "OFF") != NULL) {
 		playstory(false);
 		} else if (strstr(opzion, "CLEAR") != NULL) {
-		memset(historySerBuf, 0, dimSerBuf + 1);
-		pSerBuf = 0;
-		tailBuf = 0;
-		fullbuffer = false;
-		//	} else if (strstr(opzion, "FLUSH") != NULL) {
-		//fHistoryLoad();
+		if (historySerBuf) {
+			memset(historySerBuf, 0, dimSerBuf + 1);
+			pSerBuf = 0;
+			tailBuf = 0;
+			fullbuffer = false;
+		}
 		} else if (strstr(opzion, "LOAD") != NULL) {
 		fHistoryLoad();
 		} else if (strstr(opzion, "INFO") != NULL) {
@@ -863,9 +868,9 @@ void WebSerialSim::fHistoryLoad() {
 	//printWeb("=== Load buffer ===\n");
 	if(fullbuffer && pSerBuf != 0) unrollBuffer();
 	if(fullbuffer){
-		printBigBuf(historySerBuf, dimSerBuf);
+		printWeb(historySerBuf, dimSerBuf);
 		} else {
-		printBigBuf(historySerBuf, pSerBuf);
+		printWeb(historySerBuf, pSerBuf);
 	}
 	//printWeb("=== End Load ===\n");
 	
