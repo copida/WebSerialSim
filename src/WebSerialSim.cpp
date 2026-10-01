@@ -10,6 +10,8 @@ WebSerialSim::WebSerialSim() {
 	server = nullptr;
 	eventsserial = nullptr;
 	
+	_mutex = xSemaphoreCreateMutex();
+	
 	#ifdef _TYPE_FS
 		historyFileEnabled = true;
 		#else
@@ -64,9 +66,9 @@ void WebSerialSim::handleBufferIn() {
 /* void WebSerialSim::printWeb(char* _datiprint, size_t quantsize) {
 	if (quantsize == 0) quantsize = strlen(_datiprint);
 	if (quantsize > CHUNK_SIZE) {
-		printBigBuf(_datiprint, quantsize);
-    } else {
-		sendWeb(_datiprint, quantsize);
+	printBigBuf(_datiprint, quantsize);
+	} else {
+	sendWeb(_datiprint, quantsize);
 	}
 } */
 
@@ -74,7 +76,7 @@ void WebSerialSim::sendWeb(char* _dati, size_t len) {
 	
 	if (enableTimestamp) getTimestampString();
 	
-//	if (fromin == FROMWEB && clientSSEGlobale) {
+	//	if (fromin == FROMWEB && clientSSEGlobale) {
 	if (clientSSEGlobale) {
 		if (enableTimestamp) {			
 			txSSE(_timestamp, 11, true);
@@ -137,7 +139,7 @@ size_t WebSerialSim::write(uint8_t m) {
 
 size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 	if (size == 0 || buffer == nullptr) return 0;
-		
+	
 	// Se il blocco in arrivo non sta nel buffer rimasto, svuota prima il buffer attuale
 	if (size + bufIndexIn >= DIMBUFFERIN - 1) {
 		if(bufIndexIn > 0){
@@ -151,8 +153,6 @@ size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 		printWeb((char*)buffer, size);
 		return size;
 	}
-	
-	
 	
 	memcpy(&bufferIn[bufIndexIn], buffer, size);
 	bufIndexIn += size;
@@ -239,6 +239,10 @@ void WebSerialSim::printWeb(char *bigbuf, size_t dim) {
 }
 
 bool WebSerialSim::txSSE(char* _datiprint, size_t requiredSpace, bool txtimestamp) {
+	
+	AutoLock lock(_mutex, pdMS_TO_TICKS(100));
+	if (!lock.isLocked()) return false;
+	
 	#define timeoutbuffer 2000
 	#define TICKSBASE 2
 	#define MAX_TENTATIVI 50
@@ -685,6 +689,9 @@ void WebSerialSim::reverse(char* buf, size_t start, size_t end) {
 
 void WebSerialSim::unrollBuffer() {
 	
+	AutoLock lock(_mutex);
+	if (!lock.isLocked()) return;
+	
 	if (!fullbuffer || !historySerBuf || pSerBuf == 0) return;
 	
 	size_t head = pSerBuf;
@@ -883,6 +890,9 @@ void WebSerialSim::insBuffer(const char* str){
 	
 	if (!stateRun) return;
 	
+	AutoLock lock(_mutex);
+	if (!lock.isLocked()) return;
+	
 	#ifdef _TYPE_FS
 		if(directFS && stateRun && historyFileEnabled){
 			FS_FILE_TYPE hfile = FS_DRV.open(FILE_HISTORY, MOD_APPEND);
@@ -1007,6 +1017,11 @@ WebSerialSim::~WebSerialSim() {
 		historySerBuf = nullptr;
 	}
 	clientSSEGlobale = nullptr;
+	
+	if (_mutex != nullptr) {
+		vSemaphoreDelete(_mutex);
+		_mutex = nullptr;
+	}
 	/* if (clientsMutex) {
 		vSemaphoreDelete(clientsMutex);
 		clientsMutex = nullptr;
