@@ -1,3 +1,37 @@
+/*
+//************************************************************************************************
+funzioni: 
+setBuffer(size_t)		// dimensione richiesta per BUFFER SRAM/PSRAM  se = 0 no buffer!
+setCallback(void..);		// callback per cli o altro
+setCallBLE(void..);		// eventuale altra callback es: per BLE
+setHistoryFile(bool);		// abilta/disabilta history file (history.txt)
+setPSRAM(bool)			// abilita/disabilita allocazione buffer in PSRAM
+setTimestamp(bool);		// abilta/disabilta timestamp
+echOnOff(bool);			// abilita echo anche su seriale
+
+/*********
+#include "WebSerialSim.h"
+WebSerialSim serialWeb;
+NEL setup:
+serialWeb.begin();
+***************
+NEL loop;
+taskList()
+***************
+
+COMANDI da TERMINALE o da seriale:
+CONFIG 5000		// configura 5000 byte di allocazione buffer default(4000)
+CONFIG NOFS		// disabilta log file history
+CONFIG FS			// abilita
+CONFIG NOPSRAM		// disabilita allocazione buffer in PSRAM
+CONFIG PSRAM			// abilita
+
+TIMESTAMP ON		// abilita il timestamp nei log
+TIMESTAMP OFF		// disabilita
+
+//***************************************************************************************
+*/
+
 #include <AsyncTCP.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -6,13 +40,11 @@ AsyncWebServer server(80);
 #include "WebSerialSim.h"
 WebSerialSim serialWeb;
 
-#define PIN_CS  10
-
 static uint32_t last = millis();
 static uint32_t count = 0;
 
-const char* ssid = "XXXXXXXXXXXXXXXXXXX";
-const char* password = "XXXXXXXXXXXXXXXX";
+const char* ssid = "XXXXXXXXXXXXXX";
+const char* password = "XXXXXXXXXXXXXX";
 
 void onCbReceive(char* cmd);
 void listDir();
@@ -53,14 +85,14 @@ void setup() {
   Serial.print("Indirizzo IP: ");
   Serial.println(WiFi.localIP());
 
-  // Verifica se la PSRAM è attiva e funzionante sul modulo
+  // Verifica se la PSRAM Ã¨ attiva e funzionante sul modulo
   if (!psramInit()) {
     Serial.println("ATTENZIONE: PSRAM non rilevata o non funzionante!");
   } else {
     Serial.printf("[PSRAM] Rilevata. Memoria libera in PSRAM: %d bytes\n", ESP.getFreePsram());
   }
 
-  if (!SD.begin(PIN_CS)) {
+  if (!SD.begin(46)) {
     Serial.println("SD...FAIL");
   } else {
     Serial.println("SD...OK");
@@ -101,13 +133,13 @@ void setup() {
 
   //// **************************************************************
   //// *  SOLO buffer  NO history
-  //// *  Buffer 1000000 bytes...
+  //// *  Buffer 1000000 bytes...Mb
   //// *  History disable
   //// *  CONFIG 1000000
   //// *  CONFIG NOFS
   //// **************************************************************
   // serialWeb.setCallback(onCbReceive);
-  // serialWeb.setbuffer(1048576);
+  // serialWeb.setbuffer(1048576);	// 1Mb
   // serialWeb.setHistoryFile(false);
   // serialWeb.begin(&server);  // crea server interno
   //// **************************************************************
