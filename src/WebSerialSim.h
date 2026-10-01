@@ -147,6 +147,26 @@
 // PRIVATE =========================================================================
 		private:
 		
+		// Helper RAII privato
+    class AutoLock {
+    private:
+        SemaphoreHandle_t _sem;
+    public:
+        AutoLock(SemaphoreHandle_t sem, TickType_t waitTicks = portMAX_DELAY) : _sem(sem) {
+            if (_sem != nullptr) {
+                if (xSemaphoreTake(_sem, waitTicks) != pdTRUE) {
+                    _sem = nullptr;
+                }
+            }
+        }
+        ~AutoLock() {
+            if (_sem != nullptr) xSemaphoreGive(_sem);
+        }
+        bool isLocked() const { return _sem != nullptr; }
+    };
+
+    SemaphoreHandle_t _mutex;
+		
 		// Server interno
 		AsyncWebServer* server;
 		AsyncEventSource* eventsserial;
