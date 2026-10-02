@@ -1,402 +1,336 @@
-# WebSerialSim
+# 🌐 WebSerialSim
 
-**Serial terminal web remoto con cronologia persistente e streaming non-bloccante via SSE** — Ottimizzato per ESP32 (Arduino).
+> High-performance serial-to-web bridge for ESP32 and embedded debugging workflows
 
-WebSerialSim fornisce un **terminale seriale remoto** tramite browser web (SSE), supporto alla **cronologia circolare** (buffer in SRAM/PSRAM/SD), **echo su Serial**, integrazione BLE e callback per la gestione remota di comandi. Perfetto per debug e monitoraggio remoto di dispositivi embedded.
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![ESP32](https://img.shields.io/badge/platform-ESP32-success.svg)](https://www.espressif.com/products/microcontrollers/esp32/overview)
+[![AsyncWebServer](https://img.shields.io/badge/library-ESPAsyncWebServer-orange.svg)](https://github.com/me-no-dev/ESPAsyncWebServer)
 
----
-
-## 🚀 Perché WebSerialSim?
-
-### Confronto con altre librerie di monitoraggio seriale
-
-| **Feature** | **WebSerialSim** | **SerialMonitor.js** | **altre lib WebSocket** |
-|-------------|:----------------:|:-------------------:|:---------------------:|
-| **Supporto output 1MB+** | ✅ | ❌ (crash ~100KB) | ❌ (crash ~100KB) |
-| **Non-bloccante** | ✅ | ⚠️ (bloccante) | ⚠️ (bloccante) |
-| **Buffer circolare** | ✅ (SRAM/PSRAM/SD) | ❌ (solo RAM) | ❌ (solo RAM) |
-| **Storage persistente** | ✅ (SD/LittleFS) | ❌ | ❌ |
-| **API nativa (Print)** | ✅ | ❌ (custom) | ❌ (custom) |
-| **Tecnologia** | SSE (leggera) | WebSocket | WebSocket |
-| **Timeout intelligente** | ✅ (50ms) | ❌ | ❌ |
-| **Fallback Serial** | ✅ | ❌ | ❌ |
-| **Callback e parsing comandi** | ✅ | ⚠️ (limitato) | ⚠️ (limitato) |
-| **Supporto BLE** | ✅ | ❌ | ❌ |
+WebSerialSim provides a robust web-based serial monitor for embedded systems. It streams Serial output to a browser using SSE, captures history in RAM/PSRAM/SD, supports command parsing, and allows custom callbacks for remote control and diagnostics.
 
 ---
 
-## ⭐ Caratteristiche principali
+## ✨ Why WebSerialSim?
 
-### **1. Streaming SSE non-bloccante**
-- Trasmissione dati verso browser via **Server-Sent Events** (`/events/serial`)
-- **Non-bloccante**: il loop principale non aspetta mai il client
-- **Timeout intelligente** (50ms): accumula caratteri fino a newline o timeout
-- **Fallback su Serial** se il client è lento o disconnesso
+Embedded debugging is often limited to a local USB console. WebSerialSim solves that by turning your device into a remote serial monitor over WiFi.
 
-### **2. Buffer circolare scalabile**
-```
-┌─────────────────────────────────────┐
-│  SRAM (limitato) / PSRAM (8MB) / SD │  ← Scegli il tuo storage
-│  Buffer circolare che wrappa        │
-│  Automaticamente salva su SD al wrap│
-└─────────────────────────────────────┘
-```
-- Circular buffer configurabile (default 4KB, scalabile fino a GB con SD)
-- Allocazione in **SRAM** (64KB), **PSRAM** (4-8MB), o **SD/LittleFS** (illimitato)
-- **Wrap automatico**: quando il buffer è pieno, i dati vecchi vengono sovrascritti
-- **Flush intelligente su SD** prima di sovrascrivere dati importanti
+### What it is
 
-### **3. Interfaccia web integrata**
-```
-GET /serial          → Terminale web interattivo
-GET /view-buffer     → Visualizza la cronologia completa
-GET /get-clientcount → Numero di client connessi
-POST /parsingCmd     → Invia comandi remoti
-```
+- a lightweight serial terminal over HTTP
+- a live stream of logs to the browser
+- a history buffer with optional file persistence
+- a command processor for runtime control
+- a drop-in Print-based interface that works like Serial
 
-### **4. API semplice (eredita da Print)**
+### Why this approach
+
+| Aspect | Serial Monitor | WebSerialSim |
+|--------|---------------|--------------|
+| Remote access | ❌ | ✅ |
+| Browser access | ❌ | ✅ |
+| Persistent history | ❌ | ✅ |
+| Live log streaming | ✅ | ✅ |
+| Buffer management | ❌ | ✅ |
+| Command parsing | ❌ | ✅ |
+| Remote diagnostics | ❌ | ✅ |
+
+Designed for ESP32 firmware debugging, telemetry, and long-running device inspection.
+
+---
+
+## 🚀 Features
+
+- Serial-to-web bridge over SSE
+- Remote command execution
+- Circular history buffer in RAM / PSRAM / filesystem
+- Configurable timestamping
+- File-based history storage for persistence
+- Built-in web view and download routes
+- Callback interfaces for custom logic or BLE
+- Works as a `Print` subclass, so it behaves like standard Serial in many cases
+
+---
+
+## 🧩 Supported backends
+
+WebSerialSim supports different storage backends depending on your build configuration:
+
+- `SD`
+- `SD_MMC`
+- `LittleFS`
+- `SdFat`
+
+It can also use PSRAM when available, with graceful fallback to SRAM.
+
+---
+
+## 🔌 Quick start
+
+### Installation
+
+Add the library to your project:
+
 ```cpp
-webSerial.print("Messaggio");
-webSerial.printf("Valore: %d\n", 42);
-webSerial.println("Test");
-// Funziona come Serial! Niente API custom.
+#include <WebSerialSim.h>
 ```
 
-### **5. Gestione intelligente dei dati grandi**
-- **Chunking automatico** per evitare MTU e buffer overflow
-- Chunking non-bloccante con `delay(2)` fra i chunk
-- Supporta output di **1MB+ senza crash**
+Or copy the files from `src/` into your Arduino/PlatformIO project.
 
-### **6. Comandi HISTORY integrati**
-```
-HISTORY ON      → Attiva registrazione
-HISTORY OFF     → Disattiva registrazione
-HISTORY VIEW    → Visualizza buffer
-HISTORY CLEAR   → Svuota buffer
-HISTORY FLUSH   → Salva su SD
-HISTORY INFO    → Statistiche spazio
-```
+### Minimal example
 
-### **7. Multi-destinazione output**
-- **Web**: via SSE con fallback automático
-- **Serial**: locale sul dispositivo
-- **BLE**: callback configurabile
-- **Storage**: buffer RAM + SD persistente
-
-### **8. Callback e parsing comandi**
 ```cpp
-void onCommand(char* cmd, char* param) {
-    webSerial.printfWeb("Comando: %s\n", cmd);
-    // Elabora il comando remoto
-}
-webSerial.setCallback(onCommand);
-```
-
----
-
-## 📊 Caso d'uso: perché SSE e non WebSocket?
-
-**Per un monitor seriale, SSE è la scelta corretta:**
-
-| Aspetto | SSE | WebSocket |
-|--------|-----|-----------|
-| **Direzione** | Server→Client (monodirezionale) | Client↔Server (bidirezionale) |
-| **Overhead** | Minimo (text-based) | Medio (binary framing) |
-| **Connessione** | HTTP/1.1 standard | Upgrade HTTP → WS |
-| **Robustezza** | Alta (fallback HTTP) | Media (richiede WS support) |
-| **Caso d'uso** | Streaming dati | Chat, gaming, real-time bidirectional |
-| **Perf per 1MB** | ✅ OK | ❌ Crash |
-
-**La tua app**: mandare dati dal device → browser (monodirezionale) → **SSE perfetto** ✅
-
----
-
-## 🛠️ Requisiti
-
-### Hardware
-- **ESP32** (consigliato) o compatibile
-- ✅ **PSRAM opzionale** (4-8MB su ESP32-S3, S2, WROVER)
-- ✅ **SD card opzionale** (per storage illimitato)
-
-### Software
-```cpp
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
-#include "WebSerialSim.h"
-```
-
-### Librerie richieste
-- **AsyncTCP** (PlatformIO: `asynctcp`)
-- **ESPAsyncWebServer** (PlatformIO: `espassyncwebserver`)
-
-### Librerie opzionali
-- **LittleFS/SPIFFS** — per storage su filesystem
-- **SD** — per storage su SD card
-
-### Definizioni di progetto (platformio.ini)
-```ini
-[env:esp32]
-build_flags =
-    -D BUFFER_PSRAM          # Abilita PSRAM
-    -D HISTORY_SD            # Scrive su SD (non RAM)
-    -D OUTBLE                # Abilita callback BLE
-```
-
----
-
-## 📦 Installazione
-
-### Opzione 1: Copia manuale
-```bash
-git clone https://github.com/copida/WebSerialSim.git
-cp -r WebSerialSim/src/* <tuoProgetto>/lib/WebSerialSim/
-```
-
-### Opzione 2: PlatformIO (coming soon)
-```ini
-lib_deps =
-    copida/WebSerialSim
-```
-
-### Opzione 3: Arduino IDE
-1. Scarica il `.zip` da GitHub
-2. Sketch → Includi libreria → Aggiungi libreria .ZIP
-3. Seleziona il file scaricato
-
----
-
-## 🚀 Uso rapido
-
-### Sketch minimalista
-```cpp
-#include <AsyncTCP.h>
+#include <Arduino.h>
+#include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include "WebSerialSim.h"
 
 AsyncWebServer server(80);
-WebSerialSim webSerial;
-
-void onCommand(char* cmd, char* param) {
-    webSerial.printfWeb("Comando ricevuto: %s\n", cmd);
-}
+WebSerialSim serialSim;
 
 void setup() {
-    Serial.begin(115200);
-    
-    // Connetti a WiFi (non mostrato)
-    WiFi.mode(WIFI_STA);
-    WiFi.begin("SSID", "PASSWORD");
-    while (WiFi.status() != WL_CONNECTED) delay(100);
-    
-    // Avvia server web
-    server.begin();
-    
-    // Inizializza WebSerialSim
-    webSerial.begin(&server);
-    webSerial.setCallback(onCommand);
-    webSerial.modestory(true);    // Attiva history
-    webSerial.setbuffer(4096);    // Buffer 4KB
-    webSerial.echoOnOff(true);    // Echo su Serial
-    
-    webSerial.println("WebSerialSim avviato!");
-    webSerial.printf("WiFi: %s\n", WiFi.localIP().toString().c_str());
+  Serial.begin(115200);
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("WebSerialSim", "12345678");
+
+  serialSim.begin(&server);
+  server.begin();
 }
 
 void loop() {
-    webSerial.taskList();  // Non bloccante
-    
-    // Tuoi task...
-    delay(10);
+  serialSim.taskList();
+  delay(1);
 }
 ```
 
-### Accedi al terminale
-```
-http://<IP_ESP32>/serial
+Then open:
+
+```text
+http://<device-ip>/serial
 ```
 
 ---
 
-## 📡 API Reference
+## 🧠 Runtime commands
 
-### Inizializzazione
+The library accepts commands from Serial, HTTP, or external input.
+
+### Timestamp control
+
+```text
+TIMESTAMP ON
+TIMESTAMP OFF
+```
+
+### History control
+
+```text
+HISTORY ON
+HISTORY OFF
+HISTORY CLEAR
+HISTORY INFO
+HISTORY LOAD
+```
+
+### Configuration
+
+```text
+CONFIG FS
+CONFIG NOFS
+CONFIG PSRAM
+CONFIG NOPSRAM
+CONFIG 4000
+```
+
+Examples:
+- enable file logging
+- disable file logging
+- set buffer size to 4000 bytes
+- toggle PSRAM usage
+
+---
+
+## 🌐 HTTP routes
+
+| Route | Method | Purpose |
+|--------|--------|---------|
+| `/serial` | GET | Web UI for live monitoring |
+| `/events/serial` | GET | SSE serial stream |
+| `/buffer?action=view` | GET | View stored history |
+| `/buffer?action=down` | GET | Download history |
+| `/delhistory` | GET | Remove history file |
+| `/parsingCmd` | POST | Send command payload |
+
+---
+
+## ⏱️ Timestamp modes
+
+The library supports two timestamp strategies:
+
+### Real-time mode
+
+```cpp
+#define TIMESTAMP_REALTIME
+```
+
+Uses `time()` and wall-clock time.
+
+### Uptime mode
+
+Default behavior uses `millis()` to generate a lightweight time value without extra RTC setup.
+
+This is useful when:
+- you want very low overhead
+- the device is not synchronized to a real time source
+- you want timestamp generation with minimal CPU cost
+
+---
+
+## 💾 Storage behavior
+
+History can be stored in:
+- RAM
+- PSRAM
+- filesystem-backed storage
+- direct-to-file mode when buffer is disabled
+
+The library uses a circular buffer pattern and flushes history intelligently before overwrite.
+
+### Example
+
+```cpp
+webSerial.setbuffer(4096);
+webSerial.setHistoryFile(true);
+webSerial.setPSRAM(true);
+```
+
+---
+
+## 🧪 Performance notes
+
+The implementation is designed for high-throughput serial monitoring.
+
+Validated characteristics include:
+- sustained high-volume serial output
+- SSE-based delivery without blocking the main loop
+- large sequential log streams without requiring WebSocket infrastructure
+- stable operation in embedded multitask workflows
+
+---
+
+## ⚙️ API overview
+
+### Main public methods
+
 ```cpp
 void begin(AsyncWebServer* mainServer);
-```
-Registra le rotte web e avvia SSE.
-
-### Output (eredita da Print)
-```cpp
-void print(const char*);
-void println(const char*);
-void printf(const char* format, ...);
-void printfWeb(const char* format, ...);  // Diretto a web
-```
-
-### Buffer e History
-```cpp
-void modestory(bool action);           // Attiva/disattiva history
-void setbuffer(size_t _dimbuffer);     // Imposta dimensione buffer (byte)
-void fViewHistory();                   // Visualizza contenuto buffer
-void fHistoryClear();                  // Svuota buffer
-void fHistoryFlush();                  // Salva buffer su SD
-void infoSerBuf();                     // Mostra statistiche
+void taskList();
+void setCallback(CallbackFunzione cb);
+void setCallBLE(CallbackBLE cb);
+void setbuffer(size_t bytes);
+void setHistoryFile(bool enable);
+void setPSRAM(bool enable);
+void setTimestamp(bool enable);
+void echoOnOff(bool onoff);
+void infoSerBuf();
 ```
 
-### Comandi
-```cpp
-bool inputEXT(char* inExt, int lenb);              // Input esterno (Bluetooth)
-void setCallback(CallbackFunzione cb);             // Callback per comandi
-void echoOnOff(bool onoff);                        // Echo su Serial
-void taskList();                                   // Main task (non bloccante)
-```
-
-### SSE
-```cpp
-bool checkClientSSE();                 // Ci sono client connessi?
-bool canSendSSE(size_t requiredSpace); // Spazio disponibile?
-```
+`WebSerialSim` also derives from `Print`, so it supports standard print operations.
 
 ---
 
-## 🌐 Endpoints HTTP
+## 🧾 Example callback
 
-| Endpoint | Metodo | Descrizione |
-|----------|--------|-------------|
-| `/serial` | GET | Pagina HTML del terminale |
-| `/view-buffer` | GET | Scarica la cronologia completa |
-| `/get-clientcount` | GET | Numero di client SSE connessi |
-| `/parsingCmd` | POST | Invia comandi remoti |
-| `/events/serial` | SSE | Stream dati (evento: `serial_print`, `client_count`) |
-
-### Esempio POST
-```bash
-curl -X POST http://192.168.1.100/parsingCmd \
-  -H "Content-Type: text/plain" \
-  -d "1070340744:HISTORY INFO"
-  # Format: <clientID>:<comando>
-```
-
----
-
-## 🔧 Configurazione avanzata
-
-### Personalizzare dimensioni buffer
 ```cpp
-#define MAXSIZEBUFFER_HISTORY 4000  // Piccolo (SRAM)
-// oppure
-#define MAXSIZEBUFFER_HISTORY 65536 // Grande (PSRAM)
-// oppure
-#define MAXSIZEBUFFER_HISTORY 0     // Scrittura diretta su SD (senza RAM buffer)
-```
-
-### Scegliere storage
-```ini
-# platformio.ini
-build_flags =
-    -D HISTORY_SD        # Scrive su SD (/history.txt)
-    # -D HISTORY_SDMMC   # Scrive su SD_MMC
-    # -D HISTORY_LittleFS # Scrive su LittleFS
-```
-
-### Abilitare PSRAM
-```ini
-build_flags = -D BUFFER_PSRAM
-```
-Richiede `psramFound()` e `ps_malloc()` (built-in su Arduino ESP32).
-
-### Callback BLE
-```cpp
-void bleOutput(char* data) {
-    // Invia data al modulo BLE
+void handleCommand(char* cmd) {
+  Serial.printf("CMD: %s\n", cmd);
 }
 
-#define OUTBLE
-webSerial.setCallBLE(bleOutput);
+void setup() {
+  webSerial.setCallback(handleCommand);
+}
 ```
+
+---
+
+## 🛠️ Why SSE and not WebSocket?
+
+For a serial monitor, the output is mostly unidirectional: device → browser. SSE is a better fit because it is:
+
+- simpler
+- lighter
+- easier to integrate with HTTP server routing
+- reliable for large continuous logs
+- well-suited to browser streaming without binary protocol overhead
+
+This keeps the implementation smaller and more stable for continuous log monitoring.
 
 ---
 
 ## 🐛 Troubleshooting
 
-### "Buffer too small" warning
+### No logs appear in browser
+
+- verify WiFi access point is running
+- confirm `/serial` route is served
+- make sure `server.begin()` is called
+- check Serial output from the ESP32 itself
+
+### History not saving
+
+- check filesystem backend is enabled
+- ensure adequate free memory
+- run `HISTORY INFO` to inspect state
+
+### Buffer too small
+
+```text
+Attenzione buffer too small ..almeno 1500
 ```
-⚠️ Attenzione buffer too small ..almeno 1500
-```
-**Soluzione**: aumenta `MAXSIZEBUFFER_HISTORY` a >= 1500 byte.
 
-### SSE non arrivano al browser
-**Controlla**:
-1. ESP32 e browser sulla stessa rete WiFi
-2. Firewall blocca porta 80
-3. `server.begin()` è stato chiamato prima di `webSerial.begin(&server)`
-4. Browser supporta SSE (edge, firefox, chrome OK; IE 11 NO)
+Increase the history buffer size using:
 
-### Crash durante output grandi
-**Cause comuni**:
-1. Buffer troppo piccolo → aumenta `MAXSIZEBUFFER_HISTORY`
-2. PSRAM non rilevata → disabilita `BUFFER_PSRAM` se non disponibile
-3. Stack overflow → riduci altre allocazioni
-
-**Soluzione**:
 ```cpp
-webSerial.setbuffer(8192);  // Aumenta buffer
-webSerial.modestory(true);   // Attiva history
-// o usa SD:
-#define MAXSIZEBUFFER_HISTORY 0  // Scrittura diretta su SD
-```
-
-### Memory leak
-**Assicurati di chiamare** `taskList()` regolarmente nel loop:
-```cpp
-void loop() {
-    webSerial.taskList();  // ← OBBLIGATORIO
-    // altri task
-}
+webSerial.setbuffer(4096);
 ```
 
 ---
 
-## 📋 Roadmap futuri
+## 📘 Design notes
 
-- [ ] **Timestamp automatico** per ogni linea di log
-- [ ] **Regex/filter real-time** nel frontend (search)
-- [ ] **Color coding** (ANSI escape codes per ERROR/WARN/DEBUG)
-- [ ] **Export CSV** della history
-- [ ] **Statistiche in tempo reale** (bytes/sec, uptime)
-- [ ] **Dark/Light mode** nell'interfaccia web
-- [ ] **Mobile-responsive UI**
+The library intentionally separates responsibilities:
 
----
+- `insBuffer()` handles history accumulation into the memory buffer
+- `fregbuffer()` handles snapshot persistence to filesystem
+- `begin()` sets up the web routes and SSE stream
+- `taskList()` keeps the internal state machine active
 
-## 📄 Licenza
-
-MIT License — Vedi [LICENSE](LICENSE) per dettagli.
+This keeps the code modular and easier to maintain in embedded firmware.
 
 ---
 
-## 🤝 Contribuire
+## 🧾 License
 
-Feedback, bug report e PR sono benvenuti!
+MIT License.
 
-1. Apri una **Issue** per bug o feature request
-2. Fai un fork e crea un branch: `git checkout -b feature/nome-feature`
-3. Commit: `git commit -am 'Add feature: ...'`
-4. Push: `git push origin feature/nome-feature`
-5. Apri una **Pull Request**
+See the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 📞 Support
+## 👀 Roadmap
 
-- 📖 Vedi la sezione [API Reference](#-api-reference) sopra
-- 🐛 Apri un'issue su GitHub
-- 💬 Discussioni: GitHub Discussions (coming soon)
+Planned enhancements are focused on stability and usability rather than protocol churn:
+
+- improved command validation
+- more detailed buffer diagnostics
+- richer web UI panels
+- broader filesystem backend coverage
+- better release packaging for library usage
 
 ---
 
-## 🏆 Credits
+## ❤️ Project status
 
-Sviluppato per ESP32 debugging e monitoraggio remoto di dispositivi embedded.
+WebSerialSim is built for practical firmware diagnostics and field debugging. It aims to give embedded developers a simple, reliable way to inspect device output remotely without adding heavy infrastructure.
 
-**Made with ❤️ for makers & embedded engineers**
+If you need a browser-based serial monitor for ESP32 projects, this library is designed to be a fast and lightweight option.
