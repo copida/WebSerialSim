@@ -110,20 +110,37 @@ void WebSerialSim::sendWeb(char* _dati, size_t len) {
 void WebSerialSim::getTimestampString() {
 	//static char timestamp[16];  // "[HH:MM:SS] " = 11 char max
 	
+	
 	if (!enableTimestamp) {
 		return;
 	}
 	
-	time_t now = time(nullptr);
-	struct tm* timeinfo = localtime(&now);
+	#ifdef TIMESTAMP_REALTIME
+		time_t now = time(nullptr);
+		struct tm* timeinfo = localtime(&now);
+		if (timeinfo == nullptr) return;
+		
+		snprintf(_timestamp, sizeof(_timestamp),
+			"[%02d:%02d:%02d] ",
+			timeinfo->tm_hour,
+			timeinfo->tm_min,
+		timeinfo->tm_sec);
+		
+		#else
+		
+    unsigned long ms = millis();
+    
+    unsigned long totalSecs = ms / 1000;
+    int hours = (totalSecs / 3600) % 24;
+    int minutes = (totalSecs / 60) % 60;
+    int seconds = totalSecs % 60;
+    
+    snprintf(_timestamp, sizeof(_timestamp),
+			"[%02d:%02d:%02d] ",
+		hours, minutes, seconds);
+		
+	#endif
 	
-	snprintf(_timestamp, sizeof(_timestamp),
-		"[%02d:%02d:%02d] ",
-		timeinfo->tm_hour,
-		timeinfo->tm_min,
-	timeinfo->tm_sec);
-	
-	return;
 } 
 
 //======================
@@ -143,30 +160,30 @@ size_t WebSerialSim::write(const uint8_t *buffer, size_t size) {
 	// Se il blocco in arrivo non sta nel buffer rimasto, svuota prima il buffer attuale
 	if (size + bufIndexIn >= DIMBUFFERIN - 1) {
 		if(bufIndexIn > 0){
-			printWeb(bufferIn, bufIndexIn);
-			bufIndexIn = 0;
-		}
-	}
-	
-	// Se il blocco singolo è più grande dell'intero buffer vuoto, bypassa l'accumulo
-	if (size >= DIMBUFFERIN - 1) {
-		printWeb((char*)buffer, size);
-		return size;
-	}
-	
-	memcpy(&bufferIn[bufIndexIn], buffer, size);
-	bufIndexIn += size;
-	bufferIn[bufIndexIn] = '\0';
-	
-	if (bufferIn[bufIndexIn - 1] == '\n') {
-		//bufIndexIn = 0;
 		printWeb(bufferIn, bufIndexIn);
 		bufIndexIn = 0;
-		} else {
-		ultimoCarattereTime = millis();
 	}
-	
+}
+
+// Se il blocco singolo è più grande dell'intero buffer vuoto, bypassa l'accumulo
+if (size >= DIMBUFFERIN - 1) {
+	printWeb((char*)buffer, size);
 	return size;
+}
+
+memcpy(&bufferIn[bufIndexIn], buffer, size);
+bufIndexIn += size;
+bufferIn[bufIndexIn] = '\0';
+
+if (bufferIn[bufIndexIn - 1] == '\n') {
+	//bufIndexIn = 0;
+	printWeb(bufferIn, bufIndexIn);
+	bufIndexIn = 0;
+	} else {
+	ultimoCarattereTime = millis();
+}
+
+return size;
 }
 
 // ======================
@@ -352,11 +369,13 @@ bool WebSerialSim::inputEXT(char* inExt, int lenb) {
 
 void WebSerialSim::parsingCmd() {
 	
-	command = nullptr;
+	/* command = nullptr;
 	argument = nullptr;
 	
 	// comando principale
+	char* firstSpace = strchr(localBuf, ' ');
 	command = strtok(buffer_ser, " ");
+	
 	if (command == NULL) {
 		println(F("Comando Empty.."));
 		return;
@@ -365,7 +384,42 @@ void WebSerialSim::parsingCmd() {
 	// primo parametro (se esiste)
 	argument = strtok(NULL, " ");
 	
-	if (argument == nullptr) argument = command;
+	if (argument == nullptr) argument = command; */
+	
+    char localBuf[LEN_BUF_SER];
+    strncpy(localBuf, buffer_ser, LEN_BUF_SER - 1);
+    localBuf[LEN_BUF_SER - 1] = '\0';
+    
+    command = nullptr;
+    argument = nullptr;
+    
+    // Trova il primo spazio
+    char* firstSpace = strchr(localBuf, ' ');
+    
+    if (firstSpace == nullptr) {
+        // Un solo token
+        command = localBuf;
+        argument = command;
+    } else {
+        // Due token
+        *firstSpace = '\0';  // Tronca primo token
+        command = localBuf;
+        
+        // Salta gli spazi
+        char* argStart = firstSpace + 1;
+        while (*argStart == ' ' && *argStart != '\0') {
+            argStart++;
+        }
+        
+        argument = (*argStart != '\0') ? argStart : command;
+    }
+    
+    // Valida command
+    if (command == nullptr || strlen(command) == 0) {
+			printWeb("Comando vuoto\n");
+        statoTask = IDLE;
+        return;
+    }
 	
 	// TIMESTAMP
 	if (strcmp(command, "TIMESTAMP") == 0) {
@@ -415,7 +469,7 @@ void WebSerialSim::parsingCmd() {
 	} 
 	// ALTRO
 	if(_callback != nullptr) {
-		if(argument != command) *(argument - 1) = ' '; 
+		//if(argument != command) *(argument - 1) = ' '; 
 		_callback(buffer_ser);
 	}
 	
@@ -890,6 +944,7 @@ void WebSerialSim::insBuffer(const char* str){
 	
 	if (!stateRun) return;
 	
+	
 	AutoLock lock(_mutex);
 	if (!lock.isLocked()) return;
 	
@@ -903,11 +958,14 @@ void WebSerialSim::insBuffer(const char* str){
 		}
 	#endif
 	
+	if (!historySerBuf || dimSerBuf == 0) {
+    return;  // Buffer non inizializzato
+	}
+	
 	int dimstr = strlen(str);
 	// per sicurezza se la str e' piu lunga del buffer ..tronco
 	if(dimstr >= dimSerBuf) dimstr = dimSerBuf -1;
 	
-	if (!historySerBuf) return;
 	
 	int spazio_alla_fine = dimSerBuf - pSerBuf;
 	
