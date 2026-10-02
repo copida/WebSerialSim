@@ -6,6 +6,7 @@
 	
 	#define INTERNALHTML
 	#define PSRAM
+	#define TIMESTAMP_REALTIME
 	
 	#ifdef INTERNALHTML
 	#define GZIP
