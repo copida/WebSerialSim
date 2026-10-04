@@ -1,0 +1,6 @@
+WebSerialSim    KEYWORD1
+setCallback    KEYWORD2
+setCallBLEk    KEYWORD2
+setbuffer   KEYWORD2
+setHistoryFile    KEYWORD2
+taskList  KEYWORD2
