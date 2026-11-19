@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![ESP32](https://img.shields.io/badge/platform-ESP32-success.svg)](https://www.espressif.com/products/microcontrollers/esp32/overview)
 [![AsyncWebServer](https://img.shields.io/badge/library-ESPAsyncWebServer-orange.svg)](https://github.com/me-no-dev/ESPAsyncWebServer)
+[![arduino-library-badge](https://ardu-badge.com?)](https://ardu-badge.com)
+
 
 WebSerialSim provides a robust web-based serial monitor for embedded systems. It streams Serial output to a browser using SSE, captures history in RAM/PSRAM/SD, supports command parsing, and allows custom callbacks for remote control and diagnostics.
 
